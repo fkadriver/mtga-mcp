@@ -45,3 +45,31 @@ CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT
 );
+
+-- Imported decklists (meta decks, brews, ...). Meta-strength columns are optional and
+-- feed the "best buildable deck" ranking; best_of distinguishes Bo1 vs Bo3 metagames.
+CREATE TABLE IF NOT EXISTS decks (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL,
+    format      TEXT,
+    best_of     INTEGER,          -- 1, 3, or NULL for either/unknown
+    tier        TEXT,             -- e.g. "1", "2" or "A"/"B" as provided by the source
+    meta_share  REAL,             -- fraction of the metagame, 0..1
+    win_rate    REAL,             -- 0..1
+    source      TEXT,             -- text / archidekt / moxfield / mtggoldfish
+    source_url  TEXT,
+    imported_at TEXT NOT NULL
+);
+
+-- Cards within a deck. grp_id is the resolved MTGA printing (NULL if the name could not
+-- be matched to our catalog). board is 'main' or 'side'.
+CREATE TABLE IF NOT EXISTS deck_cards (
+    deck_id   INTEGER NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
+    card_name TEXT NOT NULL,
+    set_code  TEXT,
+    quantity  INTEGER NOT NULL,
+    board     TEXT NOT NULL DEFAULT 'main',
+    grp_id    INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_deck_cards_deck ON deck_cards(deck_id);

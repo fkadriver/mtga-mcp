@@ -89,8 +89,49 @@ Then ask things like:
 | `missing_from_set` | Cards in a set you haven't got a playset (4) of, with a `needed` count |
 | `collection_summary` | Distinct owned, total copies, per-rarity breakdown, wildcards |
 | `query_sql` | Ad-hoc **read-only** `SELECT` over the database |
+| `import_deck` | Import a decklist from pasted text or an Archidekt/Moxfield URL |
+| `list_decks` | List stored decks |
+| `deck_gap` | Cards + wildcards needed to complete a deck |
+| `craft_priority` | Which cards to craft to unlock the most decks |
+| `best_buildable_deck` | Best Bo1/Bo3 deck you could build, meta strength × buildability |
+| `delete_deck` | Remove a stored deck |
 
-Database tables: `cards`, `collection(grp_id, count)`, `wildcards(kind, count)`, `meta`.
+Database tables: `cards`, `collection(grp_id, count)`, `wildcards(kind, count)`, `meta`,
+`decks`, `deck_cards`.
+
+## Deck buildability
+
+Import meta decks (or your own brews), then ask what you're missing and what to build.
+
+```bash
+# Import from pasted Arena/MTGO text (tag it with meta info for ranking):
+pbpaste | uv run mtga-mcp deck import --paste --name "Mono-Red" --format Standard \
+  --best-of 1 --meta-share 0.18
+uv run mtga-mcp deck import --file list.txt --name "Dimir Midrange" --best-of 3 --tier 1
+
+# Import from a deck host with a public API:
+uv run mtga-mcp deck import --url https://archidekt.com/decks/1234567
+uv run mtga-mcp deck import --url https://www.moxfield.com/decks/AbCdEf
+
+uv run mtga-mcp deck gap "Mono-Red"          # cards + wildcards you still need
+uv run mtga-mcp deck best --best-of 1         # best deck you can build right now
+uv run mtga-mcp deck craft-priority           # what to craft to unlock the most decks
+```
+
+The **north-star** query — *"given my cards and the current meta, what's the best Bo1/Bo3
+deck I could build?"* — is `deck best`, which ranks decks by meta strength × how few
+wildcards you're missing. Strength comes from the `--tier` / `--meta-share` / `--win-rate`
+you supply at import (meta sites don't expose this programmatically); with none supplied it
+ranks purely by buildability.
+
+### A note on meta-deck sources
+
+The big meta sites (MTGGoldfish, Untapped, AetherHub, mtgdecks) actively block automated
+access — Cloudflare, robots `ai-train=no`, blocked bot user-agents, and blocked export
+endpoints. So this tool imports decklists from **pasted text** and **deck-host public APIs**
+(Archidekt, Moxfield) instead. A best-effort MTGGoldfish scraper exists behind an explicit
+`--allow-scrape` flag but is brittle and may fail; pasting the Arena export (one click in your
+browser) is the reliable path.
 
 ## Development
 
@@ -100,5 +141,5 @@ uv run pytest
 
 ## Not yet implemented (ideas)
 
-Deck-buildability / "wildcards needed to build this decklist", meta-deck imports
-(MTGGoldfish/Untapped/AetherHub), live log-watching, non-English card names.
+Auto-refreshing meta snapshots, live log-watching, format-legality enforcement, deck
+similarity/clustering, non-English card names.
