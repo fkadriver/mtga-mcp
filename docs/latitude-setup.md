@@ -120,10 +120,12 @@ mtga-mcp/*-wal
 mtga-mcp/*-shm
 ```
 
-`.stignore` is a plain file inside the shared folder tree (not part of the NixOS config), so
-it isn't git-tracked — Syncthing propagates it to other devices sharing the folder like any
-other file, so it should reach Airbook automatically. Not independently verified from this
-machine; check `~/Documents/.stignore` exists on Airbook next time you're there.
+**`.stignore` is per-device and is NOT synced.** Syncthing reads it locally and deliberately
+excludes it from transfer, so each device that shares the folder needs its own copy — the
+Latitude one will never reach Airbook. Create the same file on every writing device
+(`~/Documents/.stignore` with the three patterns above); Syncthing auto-reloads it on change,
+no restart needed. Status: created on Latitude and on Airbook (2026-08-07). `nas01` doesn't
+run MTGA so it never writes sidecars — a `.stignore` there is optional.
 
 ## 8. Verify
 
