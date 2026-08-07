@@ -175,6 +175,11 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.mtga-mcp.capture.pli
 
 **Linux/NixOS (systemd user timer):** run `.venv/bin/mtga-mcp capture` from a `*.service` on a
 15-minute `*.timer`, with the `MTGA_MCP_*` path vars (above) set in the unit's `Environment=`.
+If a path contains spaces (common under Wine prefixes, e.g. `.../Magic The Gathering
+Arena/...`), quote the **whole** `VAR=value` assignment — `Environment="VAR=/path with
+spaces"` — not just the value, or systemd word-splits it into several broken assignments. See
+[`docs/latitude-setup.md`](docs/latitude-setup.md) for a full worked example, including doing
+this declaratively via home-manager's `systemd.user.services`/`timers`.
 
 ## Sharing findings across machines (Syncthing)
 
