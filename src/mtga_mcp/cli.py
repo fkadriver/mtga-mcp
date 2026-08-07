@@ -40,6 +40,11 @@ def _cmd_import(args: argparse.Namespace) -> int:
                     f"{res.wildcards_written} wildcard/currency balances "
                     f"(from {res.source})"
                 )
+                if not res.owned_cards_available:
+                    print(
+                        "            note: this MTGA client does not log the full owned-card "
+                        "list, so owned quantities are unavailable (wildcards still imported)."
+                    )
         if run_all or args.scryfall:
             print("scryfall:   downloading/parsing bulk data (this can take a while)...")
             n = ingest_scryfall.ingest(conn, force=args.force_scryfall)

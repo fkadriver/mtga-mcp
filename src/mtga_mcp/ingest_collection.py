@@ -1,15 +1,18 @@
-"""Parse owned cards and wildcard balances out of MTGA's Player.log.
+"""Parse wildcard balances (and, if present, owned cards) out of MTGA's Player.log.
 
 MTGA writes these payloads only when the "Detailed Logs (Plugin Support)" setting is
-enabled (Settings -> Account). When enabled and the Collection screen has been opened,
-the log contains:
+enabled (Settings -> Account). Modern clients log:
 
-  * ``PlayerInventory.GetPlayerCardsV3`` followed by a JSON object mapping GrpId -> count
-  * ``PlayerInventory.GetPlayerInventory`` / ``PlayerInventory`` with wildcard/currency counts
+  * ``InventoryInfo`` — wildcard and currency balances (WildCardCommons, Gems, Gold, ...).
 
-We scan for the *last* occurrence of each marker (most recent state) and brace-match the
-JSON object that follows. If no marker is present we return zero counts and a hint, rather
-than failing, so a catalog-only setup still works.
+Older clients additionally logged the full owned-card collection:
+
+  * ``PlayerInventory.GetPlayerCardsV3`` — a JSON object mapping GrpId -> owned count
+  * ``PlayerInventory.GetPlayerInventory`` — the legacy wildcard/currency payload (wcCommon...)
+
+As of 2026 the native client no longer emits the full owned-card dump, so `cards_written`
+is commonly 0 even with detailed logs on; wildcards still import. We scan for the *last*
+occurrence of each marker (most recent state) and brace-match the JSON object that follows.
 """
 
 from __future__ import annotations
@@ -21,8 +24,19 @@ from pathlib import Path
 
 from . import db, paths
 
-# Marker -> our wildcards.kind label, for the PlayerInventory payload.
-_WILDCARD_FIELDS = {
+# Modern InventoryInfo schema: field -> our wildcards.kind label.
+_INVENTORY_FIELDS = {
+    "WildCardCommons": "common",
+    "WildCardUnCommons": "uncommon",
+    "WildCardRares": "rare",
+    "WildCardMythics": "mythic",
+    "Gold": "gold",
+    "Gems": "gems",
+    "TotalVaultProgress": "vault",
+}
+
+# Legacy PlayerInventory.GetPlayerInventory schema, kept as a fallback.
+_LEGACY_INVENTORY_FIELDS = {
     "wcCommon": "common",
     "wcUncommon": "uncommon",
     "wcRare": "rare",
@@ -38,6 +52,7 @@ class CollectionResult:
     cards_written: int
     wildcards_written: int
     source: str | None  # which log file the data came from, or None if not found
+    owned_cards_available: bool = False  # did the log contain a full owned-card dump?
 
 
 def _extract_last_json_object(text: str, marker: str) -> dict | None:
@@ -104,7 +119,13 @@ def ingest(conn: sqlite3.Connection) -> CollectionResult:
         return CollectionResult(0, 0, None)
 
     cards = _extract_last_json_object(text, "PlayerInventory.GetPlayerCardsV3")
-    inventory = _extract_last_json_object(text, "PlayerInventory.GetPlayerInventory")
+
+    # Prefer the modern InventoryInfo payload; fall back to the legacy schema.
+    inventory = _extract_last_json_object(text, '"InventoryInfo"')
+    inventory_fields = _INVENTORY_FIELDS
+    if inventory is None:
+        inventory = _extract_last_json_object(text, "PlayerInventory.GetPlayerInventory")
+        inventory_fields = _LEGACY_INVENTORY_FIELDS
 
     cards_written = 0
     wildcards_written = 0
@@ -120,7 +141,7 @@ def ingest(conn: sqlite3.Connection) -> CollectionResult:
                     cards_written += 1
         if inventory:
             conn.execute("DELETE FROM wildcards")
-            for field, kind in _WILDCARD_FIELDS.items():
+            for field, kind in inventory_fields.items():
                 if field in inventory and isinstance(inventory[field], (int, float)):
                     conn.execute(
                         "INSERT INTO wildcards(kind, count) VALUES(?, ?)",
@@ -130,4 +151,9 @@ def ingest(conn: sqlite3.Connection) -> CollectionResult:
         if cards or inventory:
             db.set_meta(conn, "collection_source", source or "unknown")
 
-    return CollectionResult(cards_written, wildcards_written, source if (cards or inventory) else None)
+    return CollectionResult(
+        cards_written,
+        wildcards_written,
+        source if (cards or inventory) else None,
+        owned_cards_available=bool(cards),
+    )
