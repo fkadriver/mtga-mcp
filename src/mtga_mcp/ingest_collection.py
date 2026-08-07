@@ -55,9 +55,9 @@ class CollectionResult:
     owned_cards_available: bool = False  # did the log contain a full owned-card dump?
 
 
-def _extract_last_json_object(text: str, marker: str) -> dict | None:
-    """Return the JSON object following the last occurrence of `marker`, or None."""
-    result: dict | None = None
+def _extract_all_json_objects(text: str, marker: str) -> list[dict]:
+    """Return every JSON object following an occurrence of `marker`, in order."""
+    results: list[dict] = []
     start = 0
     while True:
         idx = text.find(marker, start)
@@ -69,8 +69,14 @@ def _extract_last_json_object(text: str, marker: str) -> dict | None:
             continue
         obj = _match_object(text, brace)
         if isinstance(obj, dict):
-            result = obj  # keep the latest
-    return result
+            results.append(obj)
+    return results
+
+
+def _extract_last_json_object(text: str, marker: str) -> dict | None:
+    """Return the JSON object following the last occurrence of `marker`, or None."""
+    objects = _extract_all_json_objects(text, marker)
+    return objects[-1] if objects else None
 
 
 def _match_object(text: str, open_idx: int) -> dict | None:

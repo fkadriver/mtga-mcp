@@ -174,6 +174,18 @@ def delete_deck(deck: str) -> dict[str, Any]:
         return {"deleted": row["id"]}
 
 
+@mcp.tool(description="Recent history of your wildcard and currency balances (one row per "
+                      "capture), newest first. Populated by `mtga-mcp capture`, which runs on a "
+                      "schedule to track changes over time as new sets release.")
+def wildcard_history(limit: int = 20) -> list[dict[str, Any]]:
+    with db.connect_readonly() as conn:
+        rows = conn.execute(
+            "SELECT captured_at, common, uncommon, rare, mythic, gold, gems, vault "
+            "FROM inventory_history ORDER BY captured_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
 def main() -> None:
     mcp.run("stdio")
 

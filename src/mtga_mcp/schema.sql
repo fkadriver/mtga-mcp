@@ -73,3 +73,25 @@ CREATE TABLE IF NOT EXISTS deck_cards (
 );
 
 CREATE INDEX IF NOT EXISTS idx_deck_cards_deck ON deck_cards(deck_id);
+
+-- Raw InventoryInfo payloads, one per SeqId, accumulated across log rotations. This preserves
+-- the (currently empty) `Changes` deltas so a future card-delta parser can rebuild owned
+-- counts as packs are opened / new sets release. Deduped by SeqId.
+CREATE TABLE IF NOT EXISTS inventory_raw (
+    seq_id      INTEGER PRIMARY KEY,
+    captured_at TEXT NOT NULL,
+    payload     TEXT NOT NULL          -- full InventoryInfo JSON
+);
+
+-- Flattened wildcard/currency snapshot per capture, for trend queries.
+CREATE TABLE IF NOT EXISTS inventory_history (
+    captured_at TEXT PRIMARY KEY,
+    seq_id      INTEGER,
+    common      INTEGER,
+    uncommon    INTEGER,
+    rare        INTEGER,
+    mythic      INTEGER,
+    gold        INTEGER,
+    gems        INTEGER,
+    vault       INTEGER
+);

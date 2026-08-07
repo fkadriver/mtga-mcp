@@ -20,8 +20,20 @@ model bundled here — your MCP client supplies the LLM.
 The join key is MTGA's `GrpId`, which equals Scryfall's `arena_id`. Everything lands in
 `~/.local/share/mtga-mcp/mtga.db` (override with `MTGA_MCP_DATA_DIR`).
 
-> **Paths are macOS-specific** (this project targets a native macOS MTGA install launched
-> via Heroic). Adjust `src/mtga_mcp/paths.py` for other platforms.
+> **Platforms.** Defaults target a **native macOS** MTGA install. On **Linux/NixOS running
+> MTGA via Heroic (Wine/Proton)** the files live inside the game's Wine prefix — point the
+> tool at them with environment variables (no code changes):
+>
+> | Env var | What |
+> | --- | --- |
+> | `MTGA_MCP_PLAYER_LOG` | full path to `Player.log` (prev log is inferred as a sibling) |
+> | `MTGA_MCP_RAW_DIR` | dir holding `Raw_CardDatabase_*.mtga` |
+> | `MTGA_MCP_UTC_LOG_DIR` | dir of rotating `UTC_Log*.log` files |
+> | `MTGA_MCP_DATA_DIR` | where our own DB/caches live (default `~/.local/share/mtga-mcp`) |
+>
+> Under Heroic these are typically at
+> `<prefix>/drive_c/users/<user>/AppData/LocalLow/Wizards Of The Coast/MTGA/…`
+> (`Player.log`, and `Downloads/Raw` for the card DB).
 
 ## Setup
 
@@ -95,9 +107,10 @@ Then ask things like:
 | `craft_priority` | Which cards to craft to unlock the most decks |
 | `best_buildable_deck` | Best Bo1/Bo3 deck you could build, meta strength × buildability |
 | `delete_deck` | Remove a stored deck |
+| `wildcard_history` | Recent history of wildcard/currency balances (from scheduled capture) |
 
 Database tables: `cards`, `collection(grp_id, count)`, `wildcards(kind, count)`, `meta`,
-`decks`, `deck_cards`.
+`decks`, `deck_cards`, `inventory_raw`, `inventory_history`.
 
 ## Deck buildability
 
@@ -132,6 +145,36 @@ endpoints. So this tool imports decklists from **pasted text** and **deck-host p
 (Archidekt, Moxfield) instead. A best-effort MTGGoldfish scraper exists behind an explicit
 `--allow-scrape` flag but is brittle and may fail; pasting the Arena export (one click in your
 browser) is the reliable path.
+
+## Scheduled capture (wildcards + future card deltas)
+
+Modern MTGA clients don't log your full owned-card collection — only `InventoryInfo`
+(wildcards/currency, plus a `Changes` delta array). And `Player.log` rotates, so those
+payloads are ephemeral. `mtga-mcp capture` archives every distinct `InventoryInfo` (by
+`SeqId`) into `inventory_raw` and records a wildcard/currency snapshot in `inventory_history`.
+Running it on a schedule accumulates a timeline and **preserves acquisition deltas** as new
+sets release (the card-delta parser will be built once a real pack-open sample exists).
+
+```bash
+uv run mtga-mcp capture       # skips instantly if the logs haven't changed since last run
+uv run mtga-mcp history       # recent wildcard/currency snapshots
+```
+
+`capture` stat-checks the logs and **skips all parsing when they're unchanged** (i.e. when
+you're not playing), so a frequent schedule costs almost nothing at idle.
+
+### Run it automatically
+
+**macOS (launchd):** edit `packaging/com.mtga-mcp.capture.plist` (replace `__REPO__` and
+`__LOG__`), copy to `~/Library/LaunchAgents/com.mtga-mcp.capture.plist`, then:
+
+```bash
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.mtga-mcp.capture.plist
+# unload with: launchctl bootout gui/$(id -u)/com.mtga-mcp.capture
+```
+
+**Linux/NixOS (systemd user timer):** run `.venv/bin/mtga-mcp capture` from a `*.service` on a
+15-minute `*.timer`, with the `MTGA_MCP_*` path vars (above) set in the unit's `Environment=`.
 
 ## Development
 
