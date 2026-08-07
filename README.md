@@ -176,6 +176,25 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.mtga-mcp.capture.pli
 **Linux/NixOS (systemd user timer):** run `.venv/bin/mtga-mcp capture` from a `*.service` on a
 15-minute `*.timer`, with the `MTGA_MCP_*` path vars (above) set in the unit's `Environment=`.
 
+## Sharing findings across machines (Syncthing)
+
+To use one database across several machines (e.g. macOS + a Linux/NixOS laptop), keep the DB
+in a synced folder and leave the big regenerable Scryfall cache local:
+
+```bash
+export MTGA_MCP_DB_PATH=~/Documents/mtga-mcp/mtga.db   # inside your Syncthing folder
+# DATA_DIR (Scryfall cache, ~74 MB) stays local and is NOT synced.
+```
+
+Set `MTGA_MCP_DB_PATH` everywhere the tool runs: your shell profile, the capture LaunchAgent
+(`EnvironmentVariables`), and the MCP client config (`env` block of the server entry). Then
+append `packaging/syncthing.stignore` to the `.stignore` at the root of the synced folder so
+SQLite's transient `-journal/-wal/-shm` sidecars aren't synced.
+
+This is safe because **MTGA runs on only one device at a time**, so the two machines never
+write the DB concurrently; the ~11 MB `mtga.db` (decks, wildcards, inventory history) syncs as
+a single clean file.
+
 ## Development
 
 ```bash

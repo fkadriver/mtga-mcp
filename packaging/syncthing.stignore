@@ -1,0 +1,15 @@
+// Syncthing ignore patterns for the mtga-mcp database.
+//
+// mtga-mcp is set up to sync a single SQLite DB (mtga.db) across machines by pointing
+// MTGA_MCP_DB_PATH at a folder inside your synced tree (e.g. ~/Documents/mtga-mcp/mtga.db).
+// Append these lines to the .stignore at the ROOT of that Syncthing folder (adjust the
+// "mtga-mcp/" prefix to match the DB's location within the folder).
+//
+// They exclude SQLite's transient sidecar files, which must NOT be synced — syncing them
+// mid-write can corrupt the database. mtga.db itself is safe to sync because MTGA (and thus
+// capture) only runs on one machine at a time and our writes are short rollback-journal
+// transactions, leaving a clean single file at rest.
+
+mtga-mcp/*-journal
+mtga-mcp/*-wal
+mtga-mcp/*-shm

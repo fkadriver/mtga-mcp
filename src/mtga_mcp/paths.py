@@ -9,7 +9,10 @@ with an environment variable:
     MTGA_MCP_PLAYER_LOG_PREV  (optional) Player-prev.log; defaults to a sibling of PLAYER_LOG
     MTGA_MCP_RAW_DIR       directory holding Raw_CardDatabase_*.mtga
     MTGA_MCP_UTC_LOG_DIR   directory of rotating UTC_Log*.log files
-    MTGA_MCP_DATA_DIR      where we keep our own DB / caches (default ~/.local/share/mtga-mcp)
+    MTGA_MCP_DATA_DIR      where we keep our own caches (default ~/.local/share/mtga-mcp)
+    MTGA_MCP_DB_PATH       our SQLite DB path (default DATA_DIR/mtga.db). Point this at a
+                           Syncthing-synced folder to share findings across machines; the big
+                           regenerable Scryfall cache stays in DATA_DIR and is not synced.
 
 For Heroic on Linux these live under the game's Wine prefix, e.g.
     <prefix>/drive_c/users/<user>/AppData/LocalLow/Wizards Of The Coast/MTGA/Player.log
@@ -47,9 +50,10 @@ _RAW_DIR = _env_path("MTGA_MCP_RAW_DIR") or (_MAC_APP_SUPPORT / "Downloads" / "R
 # The client also mirrors detailed RPC payloads (incl. InventoryInfo) into rotating UTC logs.
 _UTC_LOG_DIR = _env_path("MTGA_MCP_UTC_LOG_DIR") or (_MAC_APP_SUPPORT / "Logs" / "Logs")
 
-# Where we keep our own database and any cached downloads (Scryfall bulk).
+# Where we keep our own caches (Scryfall bulk). The DB can live elsewhere (e.g. a synced
+# folder) via MTGA_MCP_DB_PATH, while the large regenerable cache stays local.
 DATA_DIR = Path(os.environ.get("MTGA_MCP_DATA_DIR", HOME / ".local" / "share" / "mtga-mcp"))
-DB_PATH = DATA_DIR / "mtga.db"
+DB_PATH = _env_path("MTGA_MCP_DB_PATH") or (DATA_DIR / "mtga.db")
 SCRYFALL_CACHE = DATA_DIR / "scryfall-default-cards.jsonl.gz"
 
 
@@ -77,3 +81,4 @@ def find_card_database() -> Path:
 
 def ensure_data_dir() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)

@@ -17,6 +17,12 @@
         <string>__REPO__/.venv/bin/mtga-mcp</string>
         <string>capture</string>
     </array>
+    <!-- If syncing the DB, point capture at the synced copy (replace __DB__), else remove: -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>MTGA_MCP_DB_PATH</key>
+        <string>__DB__</string>
+    </dict>
     <key>StartInterval</key>
     <integer>900</integer>
     <key>RunAtLoad</key>
