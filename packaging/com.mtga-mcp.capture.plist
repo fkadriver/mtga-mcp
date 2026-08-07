@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  macOS LaunchAgent that runs `mtga-mcp capture` every 15 minutes so MTGA inventory deltas
+  are preserved before Player.log rotates. This is a TEMPLATE: replace the __REPO__ and __LOG__
+  placeholders (see the "Scheduled capture" section of README.md), copy the result to
+  ~/Library/LaunchAgents/com.mtga-mcp.capture.plist, and load it with:
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.mtga-mcp.capture.plist
+  Uses the venv console script directly (no `uv`), which is fast and reliable under launchd.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.mtga-mcp.capture</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>__REPO__/.venv/bin/mtga-mcp</string>
+        <string>capture</string>
+    </array>
+    <!-- If syncing the DB, point capture at the synced copy (replace __DB__), else remove: -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>MTGA_MCP_DB_PATH</key>
+        <string>__DB__</string>
+    </dict>
+    <key>StartInterval</key>
+    <integer>900</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>StandardOutPath</key>
+    <string>__LOG__</string>
+    <key>StandardErrorPath</key>
+    <string>__LOG__</string>
+</dict>
+</plist>

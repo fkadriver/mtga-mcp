@@ -8,6 +8,7 @@ import sys
 import json
 
 from . import (
+    capture as capture_mod,
     db,
     deck_analysis,
     deck_sources,
@@ -59,6 +60,37 @@ def _cmd_serve(_args: argparse.Namespace) -> int:
     from . import server
 
     server.main()
+    return 0
+
+
+def _cmd_capture(args: argparse.Namespace) -> int:
+    conn = db.connect()
+    try:
+        res = capture_mod.capture(conn, force=args.force)
+    finally:
+        conn.close()
+    if res.skipped:
+        print("capture: logs unchanged since last run — skipped (no parsing).")
+        return 0
+    print(f"capture: +{res.new_raw} new InventoryInfo payloads ({res.total_raw} archived total)")
+    if res.snapshot:
+        print(f"         wildcards/currency: {res.snapshot}")
+    if res.changes_seen:
+        print(f"         {res.changes_seen} card-change entries observed — a real sample to "
+              f"build the card-delta parser against!")
+    return 0
+
+
+def _cmd_history(args: argparse.Namespace) -> int:
+    conn = db.connect_readonly()
+    try:
+        rows = [dict(r) for r in conn.execute(
+            "SELECT captured_at, common, uncommon, rare, mythic, gold, gems, vault "
+            "FROM inventory_history ORDER BY captured_at DESC LIMIT ?", (args.limit,)
+        )]
+    finally:
+        conn.close()
+    _pretty(rows)
     return 0
 
 
@@ -203,6 +235,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     srv = sub.add_parser("serve", help="Run the MCP server over stdio")
     srv.set_defaults(func=_cmd_serve)
+
+    cap = sub.add_parser("capture", help="Snapshot MTGA inventory (wildcards/currency) + archive "
+                                         "raw payloads; run regularly to preserve deltas")
+    cap.add_argument("--force", action="store_true",
+                     help="Parse even if the logs haven't changed since the last capture")
+    cap.set_defaults(func=_cmd_capture)
+
+    hist = sub.add_parser("history", help="Show recent inventory (wildcard/currency) snapshots")
+    hist.add_argument("--limit", type=int, default=20)
+    hist.set_defaults(func=_cmd_history)
 
     _add_deck_commands(sub)
 
