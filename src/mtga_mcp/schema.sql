@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS cards (
 CREATE INDEX IF NOT EXISTS idx_cards_name ON cards(name);
 CREATE INDEX IF NOT EXISTS idx_cards_set ON cards(set_code);
 
--- Owned quantities, keyed by MTGA GrpId. From Player.log.
+-- Owned quantities, keyed by MTGA GrpId. Either from Player.log GrantedCards deltas
+-- (capture) or replaced wholesale by a full memory-scanner export (ingest_export).
 CREATE TABLE IF NOT EXISTS collection (
     grp_id INTEGER PRIMARY KEY,
     count  INTEGER NOT NULL

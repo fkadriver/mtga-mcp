@@ -15,6 +15,7 @@ from . import (
     decklist,
     ingest_catalog,
     ingest_collection,
+    ingest_export,
     ingest_scryfall,
     paths,
 )
@@ -52,6 +53,25 @@ def _cmd_import(args: argparse.Namespace) -> int:
             print(f"scryfall:   {n} cards enriched")
     finally:
         conn.close()
+    print(f"\ndatabase:   {paths.DB_PATH}")
+    return 0
+
+
+def _cmd_import_collection(args: argparse.Namespace) -> int:
+    conn = db.connect()
+    try:
+        res = ingest_export.ingest(conn, args.export)
+    finally:
+        conn.close()
+    print(
+        f"collection: {res.grp_rows} printings / {res.total_copies} copies "
+        f"from {res.entries} cards (memory export {res.export_date or 'n/a'})"
+    )
+    if res.unknown_grp_ids:
+        print(
+            f"            note: {res.unknown_grp_ids} grp_ids not in the local catalog; "
+            f"run `mtga-mcp import --catalog` to refresh, then re-import."
+        )
     print(f"\ndatabase:   {paths.DB_PATH}")
     return 0
 
@@ -232,6 +252,14 @@ def build_parser() -> argparse.ArgumentParser:
     imp.add_argument("--all", action="store_true", help="Run all import steps (default)")
     imp.add_argument("--force-scryfall", action="store_true", help="Re-download Scryfall bulk")
     imp.set_defaults(func=_cmd_import)
+
+    impc = sub.add_parser(
+        "import-collection",
+        help="Load the full owned collection from a MTGA-collection-exporter JSON export "
+             "(replaces the current collection)",
+    )
+    impc.add_argument("export", help="Path to mtga_collection.json")
+    impc.set_defaults(func=_cmd_import_collection)
 
     srv = sub.add_parser("serve", help="Run the MCP server over stdio")
     srv.set_defaults(func=_cmd_serve)

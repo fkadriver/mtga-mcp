@@ -63,6 +63,25 @@ uv run mtga-mcp import --scryfall     # enrich (downloads a ~77MB bulk file, cac
 Re-run `import --collection` whenever your collection changes; re-run `--scryfall`
 occasionally for new sets/prices (it only re-downloads when Scryfall has newer data).
 
+#### Full collection (recommended): memory-scanner export
+
+Modern MTGA clients no longer log the full owned-card list — `import --collection` only
+recovers wildcards plus *new* card grants captured going forward, never cards you already
+owned. To get the **complete** collection, dump it from the running client's memory with
+[MTGA-collection-exporter](https://github.com/NthPhantom10/MTGA-collection-exporter) and
+import the JSON it produces:
+
+```bash
+# with MTGA running and the Collection screen opened once:
+python mtg.py                                    # writes mtga_collection.json (sudo on macOS)
+uv run mtga-mcp import-collection path/to/mtga_collection.json
+```
+
+This **replaces** the `collection` table with an authoritative, point-in-time snapshot
+(counts per printing, summed across printings for deck buildability). Re-run it whenever you
+want to refresh. On macOS the scanner needs `sudo` (it uses `task_for_pid`); the target MTGA
+process must not use the hardened runtime (the Heroic/native build does not).
+
 ## Use it from an MCP client
 
 ### Claude Code
