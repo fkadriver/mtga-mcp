@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mtga_mcp import ingest_collection as ic
+from mtga_mcp import db, ingest_collection as ic
 
 # A trimmed real InventoryInfo line (modern schema) with an earlier, stale one before it.
 MODERN_LOG = (
@@ -40,3 +40,21 @@ def test_legacy_inventory_schema_still_maps():
 
 def test_missing_marker_returns_none():
     assert ic._extract_last_json_object("no inventory here", '"InventoryInfo"') is None
+
+
+def test_wildcard_only_ingest_preserves_collection_source(monkeypatch):
+    """A modern (owned-card-less) log import must not clobber a memory-export collection's
+    provenance, nor delete its rows -- it only refreshes wildcards."""
+    conn = db.connect(":memory:")
+    conn.execute("INSERT INTO collection(grp_id, count) VALUES (12345, 4)")
+    db.set_meta(conn, "collection_source", "memory-export:mtga_collection.json")
+    conn.commit()
+
+    monkeypatch.setattr(ic, "_read_log", lambda: (MODERN_LOG, "Player.log"))
+    res = ic.ingest(conn)
+
+    assert res.cards_written == 0 and res.wildcards_written == 6
+    # Owned-card provenance and rows are untouched; wildcard provenance tracked separately.
+    assert db.get_meta(conn, "collection_source") == "memory-export:mtga_collection.json"
+    assert db.get_meta(conn, "wildcards_source") == "Player.log"
+    assert conn.execute("SELECT count FROM collection WHERE grp_id = 12345").fetchone()[0] == 4
