@@ -176,7 +176,8 @@ def _cmd_deck_best(args: argparse.Namespace) -> int:
     conn = db.connect_readonly()
     try:
         _pretty(deck_analysis.best_buildable_deck(
-            conn, best_of=args.best_of, fmt=args.format, max_wildcards=args.max_wildcards
+            conn, best_of=args.best_of, fmt=args.format, max_wildcards=args.max_wildcards,
+            include_illegal=args.include_illegal,
         ))
     finally:
         conn.close()
@@ -234,6 +235,8 @@ def _add_deck_commands(sub) -> None:
     best.add_argument("--format", help="Restrict to a format")
     best.add_argument("--max-wildcards", type=int, dest="max_wildcards",
                       help="Hide decks needing more than this many wildcards")
+    best.add_argument("--include-illegal", action="store_true", dest="include_illegal",
+                      help="Keep decks with cards not legal in their format (flagged, not hidden)")
     best.set_defaults(func=_cmd_deck_best)
 
     dele = dsub.add_parser("delete", help="Delete a stored deck")
