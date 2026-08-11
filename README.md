@@ -63,6 +63,29 @@ uv run mtga-mcp import --scryfall     # enrich (downloads a ~77MB bulk file, cac
 Re-run `import --collection` whenever your collection changes; re-run `--scryfall`
 occasionally for new sets/prices (it only re-downloads when Scryfall has newer data).
 
+#### Full collection (recommended): memory-scanner export
+
+Modern MTGA clients no longer log the full owned-card list — `import --collection` only
+recovers wildcards plus *new* card grants captured going forward, never cards you already
+owned. To get the **complete** collection, dump it from the running client's memory with the
+vendored [MTGA-collection-exporter](https://github.com/NthPhantom10/MTGA-collection-exporter)
+(under `third_party/`, MIT-licensed, with a macOS SIGBUS fix already applied) and import the
+JSON it produces:
+
+```bash
+# with MTGA running and the Collection screen opened once:
+cd third_party/mtga-collection-exporter
+uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt
+sudo ./.venv/bin/python mtg.py                   # writes mtga_collection.json (sudo on macOS)
+cd ../..
+uv run mtga-mcp import-collection third_party/mtga-collection-exporter/mtga_collection.json
+```
+
+This **replaces** the `collection` table with an authoritative, point-in-time snapshot
+(counts per printing, summed across printings for deck buildability). Re-run it whenever you
+want to refresh. On macOS the scanner needs `sudo` (it uses `task_for_pid`); the target MTGA
+process must not use the hardened runtime (the Heroic/native build does not).
+
 ## Use it from an MCP client
 
 ### Claude Code
@@ -136,6 +159,12 @@ deck I could build?"* — is `deck best`, which ranks decks by meta strength × 
 wildcards you're missing. Strength comes from the `--tier` / `--meta-share` / `--win-rate`
 you supply at import (meta sites don't expose this programmatically); with none supplied it
 ranks purely by buildability.
+
+Decks containing cards not legal in their format (rotated or banned, per the Scryfall
+legalities) are excluded by default — a "best deck" you can't actually play isn't an answer.
+Pass `--include-illegal` to keep them, flagged with `format_legal` and the offending
+`illegal_cards`. Formats without legality data (Alchemy/Timeless) are never excluded on those
+grounds.
 
 ### A note on meta-deck sources
 
@@ -216,5 +245,5 @@ uv run pytest
 
 ## Not yet implemented (ideas)
 
-Auto-refreshing meta snapshots, live log-watching, format-legality enforcement, deck
-similarity/clustering, non-English card names.
+Auto-refreshing meta snapshots, live log-watching, deck similarity/clustering, non-English
+card names.

@@ -7,6 +7,15 @@ We use Scryfall's bulk-data API (no key required). The ``default_cards`` dump is
 gzip-compressed JSONL (one card object per line), so we cache the ``.jsonl.gz`` locally and
 stream it line by line to keep memory flat, only re-downloading when Scryfall reports a
 newer ``updated_at``.
+
+Not every MTGA printing carries a Scryfall ``arena_id`` (older paper reprints MTGA brought in
+via Anthologies/Jumpstart, etc.), so an arena_id-only join leaves ~7% of the catalog
+un-enriched. A second pass fills those in by **name + set**, falling back to **name only**: the
+fields we attach (type line, oracle text, mana cost, legalities, colour identity, keywords) are
+card-level and identical across printings, so any printing of the same-named card is a correct
+source for them. Prices/image may then come from a different printing, which is acceptable for
+these otherwise-metadata-less cards. Alchemy rebalanced cards (``A-...``) are intentionally left
+unmatched -- their oracle text differs from the paper card, so name-matching would be wrong.
 """
 
 from __future__ import annotations
@@ -14,6 +23,8 @@ from __future__ import annotations
 import gzip
 import json
 import sqlite3
+from collections import defaultdict
+from typing import Iterable
 
 import httpx
 
@@ -50,12 +61,8 @@ def _download(url: str) -> None:
     tmp.replace(paths.SCRYFALL_CACHE)
 
 
-def _row_from_card(card: dict) -> dict | None:
-    """Map a Scryfall card object to our update columns, keyed by arena_id."""
-    arena_id = card.get("arena_id")
-    if not arena_id:
-        return None
-
+def _scryfall_fields(card: dict) -> dict:
+    """Map a Scryfall card object to our enrichment columns (everything but grp_id)."""
     # Double-faced cards keep text/mana/image on card_faces; fall back to the front face.
     faces = card.get("card_faces") or []
     front = faces[0] if faces else {}
@@ -71,7 +78,6 @@ def _row_from_card(card: dict) -> dict | None:
     usd = prices.get("usd")
 
     return {
-        "grp_id": arena_id,
         "color_identity": "".join(card.get("color_identity") or []),
         "type_line": card.get("type_line"),
         "mana_cost": mana_cost,
@@ -86,6 +92,14 @@ def _row_from_card(card: dict) -> dict | None:
         "image_uri": image,
         "scryfall_id": card.get("id"),
     }
+
+
+def _row_from_card(card: dict) -> dict | None:
+    """Map a Scryfall card object to our update columns, keyed by arena_id (or None)."""
+    arena_id = card.get("arena_id")
+    if not arena_id:
+        return None
+    return {"grp_id": arena_id, **_scryfall_fields(card)}
 
 
 _UPDATE_SQL = """
@@ -107,6 +121,68 @@ WHERE grp_id = :grp_id
 """
 
 
+def _iter_cards() -> Iterable[dict]:
+    """Stream card objects out of the cached gzip-compressed JSONL dump."""
+    with gzip.open(paths.SCRYFALL_CACHE, "rt", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip().rstrip(",")
+            if not line or line in ("[", "]"):
+                continue
+            yield json.loads(line)
+
+
+def _apply_arena_matches(conn: sqlite3.Connection, cards: Iterable[dict]) -> int:
+    """Enrich cards whose grp_id equals a Scryfall arena_id. Returns rows updated."""
+    updated = 0
+    for card in cards:
+        row = _row_from_card(card)
+        if row is not None:
+            updated += conn.execute(_UPDATE_SQL, row).rowcount
+    return updated
+
+
+def _apply_name_fallback(conn: sqlite3.Connection, cards: Iterable[dict]) -> int:
+    """Enrich still-unmatched cards by name+set, falling back to name only.
+
+    Runs after the arena_id pass; only touches cards still lacking a scryfall_id. An exact
+    (name, set) printing wins over a name-only match, so prices/image stay as close to the
+    MTGA printing as the bulk data allows.
+    """
+    name_set_idx: dict[tuple[str, str], list[int]] = defaultdict(list)
+    name_idx: dict[str, list[int]] = defaultdict(list)
+    for grp_id, name, set_code in conn.execute(
+        "SELECT grp_id, name, set_code FROM cards WHERE scryfall_id IS NULL"
+    ):
+        n = (name or "").lower()
+        name_set_idx[(n, (set_code or "").lower())].append(grp_id)
+        name_idx[n].append(grp_id)
+    if not name_idx:
+        return 0
+
+    # grp_id -> (priority, fields); priority 2 = name+set, 1 = name-only.
+    best: dict[int, tuple[int, dict]] = {}
+    for card in cards:
+        name = card.get("name")
+        if not name or card.get("id") is None:
+            continue
+        n = name.lower()
+        exact = name_set_idx.get((n, (card.get("set") or "").lower()))
+        loose = name_idx.get(n)
+        if not exact and not loose:
+            continue
+        fields = _scryfall_fields(card)
+        for grp in exact or ():
+            best[grp] = (2, fields)
+        for grp in loose or ():
+            if best.get(grp, (0, None))[0] < 1:
+                best[grp] = (1, fields)
+
+    updated = 0
+    for grp, (_prio, fields) in best.items():
+        updated += conn.execute(_UPDATE_SQL, {"grp_id": grp, **fields}).rowcount
+    return updated
+
+
 def ingest(conn: sqlite3.Connection, force: bool = False) -> int:
     """Download (if stale) and apply Scryfall enrichment. Returns rows updated."""
     download_uri, updated_at = _bulk_info()
@@ -114,17 +190,8 @@ def ingest(conn: sqlite3.Connection, force: bool = False) -> int:
     if force or not paths.SCRYFALL_CACHE.exists() or cached_at != updated_at:
         _download(download_uri)
 
-    updated = 0
-    with conn, gzip.open(paths.SCRYFALL_CACHE, "rt", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip().rstrip(",")
-            if not line or line in ("[", "]"):
-                continue
-            card = json.loads(line)
-            row = _row_from_card(card)
-            if row is None:
-                continue
-            cur = conn.execute(_UPDATE_SQL, row)
-            updated += cur.rowcount
+    with conn:
+        updated = _apply_arena_matches(conn, _iter_cards())
+        updated += _apply_name_fallback(conn, _iter_cards())
         db.set_meta(conn, "scryfall_updated_at", updated_at)
     return updated

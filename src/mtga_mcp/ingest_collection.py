@@ -154,8 +154,14 @@ def ingest(conn: sqlite3.Connection) -> CollectionResult:
                         (kind, int(inventory[field])),
                     )
                     wildcards_written += 1
-        if cards or inventory:
+        # `collection_source` describes the *owned cards*, so only stamp it when we actually
+        # wrote owned cards -- otherwise a wildcard-only import (the norm on modern clients,
+        # which don't log owned cards) would clobber the provenance of a full memory-scanner
+        # collection (see ingest_export). Wildcard provenance is tracked separately.
+        if cards:
             db.set_meta(conn, "collection_source", source or "unknown")
+        if inventory:
+            db.set_meta(conn, "wildcards_source", source or "unknown")
 
     return CollectionResult(
         cards_written,

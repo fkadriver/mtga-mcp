@@ -15,6 +15,7 @@ from . import (
     decklist,
     ingest_catalog,
     ingest_collection,
+    ingest_export,
     ingest_scryfall,
     paths,
 )
@@ -52,6 +53,25 @@ def _cmd_import(args: argparse.Namespace) -> int:
             print(f"scryfall:   {n} cards enriched")
     finally:
         conn.close()
+    print(f"\ndatabase:   {paths.DB_PATH}")
+    return 0
+
+
+def _cmd_import_collection(args: argparse.Namespace) -> int:
+    conn = db.connect()
+    try:
+        res = ingest_export.ingest(conn, args.export)
+    finally:
+        conn.close()
+    print(
+        f"collection: {res.grp_rows} printings / {res.total_copies} copies "
+        f"from {res.entries} cards (memory export {res.export_date or 'n/a'})"
+    )
+    if res.unknown_grp_ids:
+        print(
+            f"            note: {res.unknown_grp_ids} grp_ids not in the local catalog; "
+            f"run `mtga-mcp import --catalog` to refresh, then re-import."
+        )
     print(f"\ndatabase:   {paths.DB_PATH}")
     return 0
 
@@ -156,7 +176,8 @@ def _cmd_deck_best(args: argparse.Namespace) -> int:
     conn = db.connect_readonly()
     try:
         _pretty(deck_analysis.best_buildable_deck(
-            conn, best_of=args.best_of, fmt=args.format, max_wildcards=args.max_wildcards
+            conn, best_of=args.best_of, fmt=args.format, max_wildcards=args.max_wildcards,
+            include_illegal=args.include_illegal,
         ))
     finally:
         conn.close()
@@ -214,6 +235,8 @@ def _add_deck_commands(sub) -> None:
     best.add_argument("--format", help="Restrict to a format")
     best.add_argument("--max-wildcards", type=int, dest="max_wildcards",
                       help="Hide decks needing more than this many wildcards")
+    best.add_argument("--include-illegal", action="store_true", dest="include_illegal",
+                      help="Keep decks with cards not legal in their format (flagged, not hidden)")
     best.set_defaults(func=_cmd_deck_best)
 
     dele = dsub.add_parser("delete", help="Delete a stored deck")
@@ -232,6 +255,14 @@ def build_parser() -> argparse.ArgumentParser:
     imp.add_argument("--all", action="store_true", help="Run all import steps (default)")
     imp.add_argument("--force-scryfall", action="store_true", help="Re-download Scryfall bulk")
     imp.set_defaults(func=_cmd_import)
+
+    impc = sub.add_parser(
+        "import-collection",
+        help="Load the full owned collection from a MTGA-collection-exporter JSON export "
+             "(replaces the current collection)",
+    )
+    impc.add_argument("export", help="Path to mtga_collection.json")
+    impc.set_defaults(func=_cmd_import_collection)
 
     srv = sub.add_parser("serve", help="Run the MCP server over stdio")
     srv.set_defaults(func=_cmd_serve)

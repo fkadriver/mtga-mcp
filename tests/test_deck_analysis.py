@@ -15,16 +15,18 @@ def conn() -> sqlite3.Connection:
     c.row_factory = sqlite3.Row
     c.executescript(db._schema_sql())
     c.executemany(
-        "INSERT INTO cards(grp_id,name,set_code,collector_number,rarity,type_line) VALUES(?,?,?,?,?,?)",
+        "INSERT INTO cards(grp_id,name,set_code,collector_number,rarity,type_line,legal_standard)"
+        " VALUES(?,?,?,?,?,?,?)",
         [
-            (1, "Lightning Bolt", "STA", "42", "rare", "Instant"),
-            (2, "Sheoldred, the Apocalypse", "DMU", "107", "mythic", "Legendary Creature"),
-            (3, "Counterspell", "STA", "16", "uncommon", "Instant"),
-            (4, "Island", "FDN", "270", "basic", "Basic Land — Island"),
+            (1, "Lightning Bolt", "STA", "42", "rare", "Instant", "legal"),
+            (2, "Sheoldred, the Apocalypse", "DMU", "107", "mythic", "Legendary Creature", "legal"),
+            (3, "Counterspell", "STA", "16", "uncommon", "Instant", "legal"),
+            (4, "Island", "FDN", "270", "basic", "Basic Land — Island", "legal"),
+            (5, "Fury of the Horde", "ME1", "1", "rare", "Instant", "not_legal"),  # rotated
         ],
     )
-    # Own a full playset of Bolt and 2 Sheoldred; no Counterspell.
-    c.executemany("INSERT INTO collection(grp_id,count) VALUES(?,?)", [(1, 4), (2, 2)])
+    # Own a full playset of Bolt and 2 Sheoldred; no Counterspell. Own the rotated card too.
+    c.executemany("INSERT INTO collection(grp_id,count) VALUES(?,?)", [(1, 4), (2, 2), (5, 4)])
     c.executemany(
         "INSERT INTO wildcards(kind,count) VALUES(?,?)",
         [("common", 5), ("uncommon", 10), ("rare", 3), ("mythic", 3)],
@@ -38,6 +40,9 @@ def conn() -> sqlite3.Connection:
     # Deck C: fringe Bo1, missing 3 Counterspell.
     _store(c, "Tempo", "Standard", best_of=1, meta_share=0.1,
            text="Deck\n4 Lightning Bolt (STA) 42\n3 Counterspell (STA) 16\n")
+    # Deck D: fully owned + high meta share, but runs a rotated card -> illegal for Standard.
+    _store(c, "Rogue", "Standard", best_of=1, meta_share=0.9,
+           text="Deck\n4 Fury of the Horde (ME1) 1\n4 Lightning Bolt (STA) 42\n")
     return c
 
 
@@ -94,6 +99,36 @@ def test_best_buildable_filters_best_of(conn):
 def test_best_buildable_max_wildcards(conn):
     only_free = deck_analysis.best_buildable_deck(conn, max_wildcards=0)
     assert [r["name"] for r in only_free] == ["Aggro"]
+
+
+def test_best_buildable_excludes_illegal_by_default(conn):
+    ranked = deck_analysis.best_buildable_deck(conn)
+    names = [r["name"] for r in ranked]
+    # Rogue has the highest meta share (0.9) and is fully owned, but runs a rotated card,
+    # so legality enforcement drops it entirely.
+    assert "Rogue" not in names
+    assert names == ["Aggro", "Control", "Tempo"]
+    assert all(r["format_legal"] is True for r in ranked)
+
+
+def test_best_buildable_include_illegal_flags_but_keeps(conn):
+    ranked = deck_analysis.best_buildable_deck(conn, include_illegal=True)
+    by_name = {r["name"]: r for r in ranked}
+    assert "Rogue" in by_name
+    rogue = by_name["Rogue"]
+    assert rogue["format_legal"] is False
+    assert [c["name"] for c in rogue["illegal_cards"]] == ["Fury of the Horde"]
+    # It still ranks (top, on raw strength × buildability) when illegal decks are included.
+    assert ranked[0]["name"] == "Rogue"
+    assert by_name["Aggro"]["illegal_cards"] == []
+
+
+def test_unknown_format_not_legality_excluded(conn):
+    _store(conn, "Brew", "Alchemy", best_of=1, meta_share=0.5,
+           text="Deck\n4 Fury of the Horde (ME1) 1\n")  # rotated in Standard, but format=Alchemy
+    ranked = {r["name"]: r for r in deck_analysis.best_buildable_deck(conn)}
+    assert "Brew" in ranked                       # Alchemy has no legality data -> not excluded
+    assert ranked["Brew"]["format_legal"] is None
 
 
 def test_craft_priority_unlocks_most_decks(conn):
