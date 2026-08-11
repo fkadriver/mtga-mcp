@@ -67,14 +67,18 @@ occasionally for new sets/prices (it only re-downloads when Scryfall has newer d
 
 Modern MTGA clients no longer log the full owned-card list — `import --collection` only
 recovers wildcards plus *new* card grants captured going forward, never cards you already
-owned. To get the **complete** collection, dump it from the running client's memory with
-[MTGA-collection-exporter](https://github.com/NthPhantom10/MTGA-collection-exporter) and
-import the JSON it produces:
+owned. To get the **complete** collection, dump it from the running client's memory with the
+vendored [MTGA-collection-exporter](https://github.com/NthPhantom10/MTGA-collection-exporter)
+(under `third_party/`, MIT-licensed, with a macOS SIGBUS fix already applied) and import the
+JSON it produces:
 
 ```bash
 # with MTGA running and the Collection screen opened once:
-python mtg.py                                    # writes mtga_collection.json (sudo on macOS)
-uv run mtga-mcp import-collection path/to/mtga_collection.json
+cd third_party/mtga-collection-exporter
+uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt
+sudo ./.venv/bin/python mtg.py                   # writes mtga_collection.json (sudo on macOS)
+cd ../..
+uv run mtga-mcp import-collection third_party/mtga-collection-exporter/mtga_collection.json
 ```
 
 This **replaces** the `collection` table with an authoritative, point-in-time snapshot
