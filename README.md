@@ -160,6 +160,12 @@ wildcards you're missing. Strength comes from the `--tier` / `--meta-share` / `-
 you supply at import (meta sites don't expose this programmatically); with none supplied it
 ranks purely by buildability.
 
+Decks containing cards not legal in their format (rotated or banned, per the Scryfall
+legalities) are excluded by default — a "best deck" you can't actually play isn't an answer.
+Pass `--include-illegal` to keep them, flagged with `format_legal` and the offending
+`illegal_cards`. Formats without legality data (Alchemy/Timeless) are never excluded on those
+grounds.
+
 ### A note on meta-deck sources
 
 The big meta sites (MTGGoldfish, Untapped, AetherHub, mtgdecks) actively block automated
@@ -239,5 +245,5 @@ uv run pytest
 
 ## Not yet implemented (ideas)
 
-Auto-refreshing meta snapshots, live log-watching, format-legality enforcement, deck
-similarity/clustering, non-English card names.
+Auto-refreshing meta snapshots, live log-watching, deck similarity/clustering, non-English
+card names.
