@@ -76,8 +76,8 @@ def _cmd_capture(args: argparse.Namespace) -> int:
     if res.snapshot:
         print(f"         wildcards/currency: {res.snapshot}")
     if res.changes_seen:
-        print(f"         {res.changes_seen} card-change entries observed — a real sample to "
-              f"build the card-delta parser against!")
+        print(f"         {res.changes_seen} card copies applied to `collection` "
+              f"(from GrantedCards deltas)")
     return 0
 
 

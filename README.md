@@ -149,11 +149,19 @@ browser) is the reliable path.
 ## Scheduled capture (wildcards + future card deltas)
 
 Modern MTGA clients don't log your full owned-card collection — only `InventoryInfo`
-(wildcards/currency, plus a `Changes` delta array). And `Player.log` rotates, so those
-payloads are ephemeral. `mtga-mcp capture` archives every distinct `InventoryInfo` (by
-`SeqId`) into `inventory_raw` and records a wildcard/currency snapshot in `inventory_history`.
-Running it on a schedule accumulates a timeline and **preserves acquisition deltas** as new
-sets release (the card-delta parser will be built once a real pack-open sample exists).
+(wildcards/currency, plus a `Changes` delta array that's populated on real acquisition events:
+pack opens, precon grants, bundle/voucher redemptions). `Player.log` also rotates, so those
+payloads are ephemeral. `mtga-mcp capture` archives every distinct `InventoryInfo` payload
+into `inventory_raw` (deduped by content hash — `SeqId` resets every MTGA session, so it's not
+a safe dedup key on its own), records a wildcard/currency snapshot in `inventory_history`, and
+applies any `Changes[].GrantedCards` entries to the `collection` table. Running it on a
+schedule accumulates a timeline and **owned-card deltas** as packs are opened / new sets
+release.
+
+**Caveat:** `collection` counts built this way only reflect deltas captured *since capture
+started running* — there's no full historical collection to reconcile against, since modern
+clients don't log one. A card you owned before capture ran (and haven't been granted again
+since) won't show up.
 
 ```bash
 uv run mtga-mcp capture       # skips instantly if the logs haven't changed since last run

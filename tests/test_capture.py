@@ -14,9 +14,12 @@ INV_5 = (
     '{"InventoryInfo":{"SeqId":5,"Changes":[],"Gems":1380,"Gold":5,"TotalVaultProgress":25,'
     '"WildCardCommons":152,"WildCardUnCommons":121,"WildCardMythics":10}}'
 )
+# Shape observed in the wild: a "RedeemVoucher" Changes entry granting boosters plus one
+# explicit card (see docs/latitude-setup.md capture history for the real sample).
 INV_7_WITH_CHANGES = (
-    '{"InventoryInfo":{"SeqId":7,"Changes":[{"source":"BoosterOpen"}],"Gems":1380,"Gold":5,'
-    '"WildCardCommons":153}}'
+    '{"InventoryInfo":{"SeqId":7,"Changes":[{"Source":"RedeemVoucher",'
+    '"GrantedCards":[{"GrpId":103489,"CardAdded":true,"SetCode":"HOB"}]}],'
+    '"Gems":1380,"Gold":5,"WildCardCommons":153}}'
 )
 
 
@@ -61,7 +64,46 @@ def test_capture_accumulates_new_seqid_across_runs(conn, monkeypatch):
     res = capture.capture(conn, force=True)
     assert res.new_raw == 1
     assert res.total_raw == 2
-    assert res.changes_seen == 1  # populated Changes array is counted
+    assert res.changes_seen == 1  # one GrantedCards copy applied
+
+
+def test_capture_applies_granted_cards_to_collection(conn, monkeypatch):
+    _fake_logs(monkeypatch, INV_7_WITH_CHANGES)
+    capture.capture(conn, force=True)
+    row = conn.execute("SELECT count FROM collection WHERE grp_id = 103489").fetchone()
+    assert row["count"] == 1
+
+
+def test_capture_does_not_double_apply_on_rerun(conn, monkeypatch):
+    """The same log text is reread on every run (rotation-tolerant); GrantedCards must only
+    be applied once per distinct payload, not once per capture() call."""
+    _fake_logs(monkeypatch, INV_7_WITH_CHANGES)
+    capture.capture(conn, force=True)
+    res2 = capture.capture(conn, force=True)
+    assert res2.new_raw == 0
+    assert res2.changes_seen == 0
+    row = conn.execute("SELECT count FROM collection WHERE grp_id = 103489").fetchone()
+    assert row["count"] == 1
+
+
+def test_capture_archives_both_sides_of_a_seqid_collision(conn, monkeypatch):
+    """SeqId resets every MTGA session, so two different real payloads can share a SeqId --
+    both must be archived and both sets of GrantedCards applied, not silently dropped."""
+    same_seq_other_session = (
+        '{"InventoryInfo":{"SeqId":7,"Changes":[{"Source":"BoosterOpen",'
+        '"GrantedCards":[{"GrpId":42,"CardAdded":true}]}],"Gems":1380,"Gold":5,'
+        '"WildCardCommons":153}}'
+    )
+    _fake_logs(monkeypatch, INV_7_WITH_CHANGES)
+    capture.capture(conn, force=True)
+    monkeypatch.setattr(capture, "_read_all_logs", lambda files: same_seq_other_session)
+    res = capture.capture(conn, force=True)
+    assert res.new_raw == 1
+    assert res.total_raw == 2
+    assert conn.execute("SELECT count FROM collection WHERE grp_id = 42").fetchone()["count"] == 1
+    assert conn.execute(
+        "SELECT count FROM collection WHERE grp_id = 103489"
+    ).fetchone()["count"] == 1
 
 
 def test_capture_handles_no_inventory(conn, monkeypatch):

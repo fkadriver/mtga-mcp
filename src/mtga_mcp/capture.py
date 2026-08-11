@@ -1,17 +1,22 @@
 """Capture MTGA inventory state over time.
 
 Modern MTGA clients no longer log the full owned-card collection, only ``InventoryInfo``
-payloads (wildcards + currency, plus a ``Changes`` delta array that is usually empty). And
-Player.log rotates, so those payloads are ephemeral.
+payloads: wildcards + currency, plus a ``Changes`` delta array. ``Changes`` is empty on most
+payloads (periodic snapshots) but is populated on real acquisition events -- pack opens,
+precon grants, bundle/voucher redemptions -- as a list of entries that may carry a
+``GrantedCards`` list (one dict per physical copy granted). And Player.log rotates, so these
+payloads are ephemeral unless archived.
 
-This module is the capture scaffold: run it regularly (see the LaunchAgent under
-``packaging/``) to (1) accumulate every distinct ``InventoryInfo`` payload by ``SeqId`` into
-``inventory_raw`` so future acquisition deltas are preserved across rotations, and (2) record
-a flattened wildcard/currency snapshot in ``inventory_history`` for trend queries.
+This module runs regularly (see the LaunchAgent/systemd timer under ``packaging/``) to
+(1) accumulate every distinct ``InventoryInfo`` payload into ``inventory_raw`` so acquisition
+deltas are preserved across rotations, (2) record a flattened wildcard/currency snapshot in
+``inventory_history`` for trend queries, and (3) apply any ``GrantedCards`` entries to the
+`collection` table (see ``_apply_card_changes``).
 
-The card-delta parser — turning ``Changes`` entries into owned-card counts — is intentionally
-deferred until a real pack-open / set release provides a populated ``Changes`` sample to build
-against. See ``_apply_card_changes`` for the hook.
+Note ``collection`` counts built this way only reflect deltas captured *since this parser
+started running* -- there is no full historical collection to reconcile against, since modern
+clients don't log one. A card owned before capture ran, that hasn't been granted again since,
+won't show up here.
 """
 
 from __future__ import annotations
@@ -33,7 +38,7 @@ class CaptureResult:
     new_raw: int          # distinct new InventoryInfo SeqIds archived this run
     total_raw: int        # total InventoryInfo payloads archived to date
     snapshot: dict | None  # the wildcard/currency snapshot recorded this run
-    changes_seen: int     # non-empty Changes entries observed (for future card parsing)
+    changes_seen: int     # GrantedCards copies applied to `collection` this run
     skipped: bool = False  # logs unchanged since last run -> parsing skipped
 
 
@@ -61,15 +66,41 @@ def _snapshot_from_inventory(inv: dict) -> dict:
 
 
 def _apply_card_changes(conn: sqlite3.Connection, inv: dict) -> int:
-    """Placeholder for the future card-delta parser.
+    """Translate ``InventoryInfo.Changes[].GrantedCards`` into `collection` count updates.
 
-    When ``InventoryInfo.Changes`` starts carrying card grants (e.g. after opening packs or a
-    new set), this is where we will translate them into `collection` owned-count updates. We
-    can't implement it correctly until a real populated sample exists, so for now we only count
-    non-empty Changes so the operator can tell when there's data to build against.
+    Each ``Changes`` entry is one acquisition event (pack open, precon grant, voucher
+    redemption, ...); its optional ``GrantedCards`` list has one dict per physical copy, e.g.
+    ``{"GrpId": 103489, "CardAdded": true, "SetCode": "HOB"}``. We've only observed
+    ``CardAdded: true`` in the wild but honor an explicit ``false`` as a removal, since that's
+    the only plausible meaning of the field. Returns the number of copies applied, for
+    operator visibility (see `mtga-mcp capture` output).
+
+    Caller must only invoke this for payloads it hasn't already archived (see `capture()`) --
+    it mutates `collection` unconditionally, so applying the same payload twice would
+    double-count.
     """
     changes = inv.get("Changes")
-    return len(changes) if isinstance(changes, list) else 0
+    if not isinstance(changes, list):
+        return 0
+    applied = 0
+    for change in changes:
+        granted = change.get("GrantedCards") if isinstance(change, dict) else None
+        if not isinstance(granted, list):
+            continue
+        for card in granted:
+            if not isinstance(card, dict):
+                continue
+            grp_id = card.get("GrpId")
+            if not isinstance(grp_id, int):
+                continue
+            delta = 1 if card.get("CardAdded", True) else -1
+            conn.execute(
+                "INSERT INTO collection(grp_id, count) VALUES(?, ?) "
+                "ON CONFLICT(grp_id) DO UPDATE SET count = MAX(count + excluded.count, 0)",
+                (grp_id, delta),
+            )
+            applied += 1
+    return applied
 
 
 def capture(conn: sqlite3.Connection, *, force: bool = False) -> CaptureResult:
@@ -97,12 +128,18 @@ def capture(conn: sqlite3.Connection, *, force: bool = False) -> CaptureResult:
             seq = inv.get("SeqId")
             if not isinstance(seq, int):
                 continue
-            changes_seen += _apply_card_changes(conn, inv)
+            payload = json.dumps(inv, separators=(",", ":"))
             cur = conn.execute(
-                "INSERT OR IGNORE INTO inventory_raw(seq_id, captured_at, payload) VALUES(?,?,?)",
-                (seq, now, json.dumps(inv, separators=(",", ":"))),
+                "INSERT OR IGNORE INTO inventory_raw(seq_id, payload_hash, captured_at, payload) "
+                "VALUES(?,?,?,?)",
+                (seq, db.payload_hash(payload), now, payload),
             )
             new_raw += cur.rowcount
+            if cur.rowcount:
+                # Only apply deltas the first time we archive a payload -- the log file
+                # commonly still contains this same entry on the next run, and re-applying it
+                # would double-count the cards it granted.
+                changes_seen += _apply_card_changes(conn, inv)
             if latest is None or seq > latest[0]:
                 latest = (seq, inv)
 
