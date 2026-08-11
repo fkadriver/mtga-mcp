@@ -5,6 +5,14 @@ MTGA ships a read-only SQLite database. Card display names live in a separate
 upsert the columns MTGA knows about (name, set, collector number, rarity, colors,
 power/toughness). Richer fields (oracle text, mana cost, prices, legalities) are filled
 in later by ingest_scryfall using the shared GrpId == arena_id key.
+
+Names come in three `Formatted` variants per card: `Formatted = 1` is the canonical name
+present for every card, but ~5% carry UI markup -- `<nobr>Barad-dûr</nobr>` for hyphenated
+names, and a `<sprite="SpriteSheet_MiscIcons" name="arena_a">` prefix marking Alchemy
+rebalanced cards. `Formatted = 0` is a clean, unformatted variant that exists *only* for
+those marked-up cards (and renders the Alchemy prefix as a plain `A-`, matching how Arena and
+deck sites reference rebalanced cards). We therefore prefer `Formatted = 0` and fall back to
+`Formatted = 1`, so `cards.name` stays plain text that deck-list resolution can match.
 """
 
 from __future__ import annotations
@@ -19,11 +27,13 @@ _RARITY = {0: "token", 1: "basic", 2: "common", 3: "uncommon", 4: "rare", 5: "my
 _COLOR = {"1": "W", "2": "U", "3": "B", "4": "R", "5": "G"}
 
 _CATALOG_QUERY = """
-SELECT c.GrpId, l.Loc AS name, c.ExpansionCode, c.CollectorNumber,
+SELECT c.GrpId, COALESCE(plain.Loc, fmt.Loc) AS name, c.ExpansionCode, c.CollectorNumber,
        c.Rarity, c.Colors, c.Power, c.Toughness
 FROM Cards c
-JOIN Localizations_enUS l ON c.TitleId = l.LocId AND l.Formatted = 1
-WHERE c.IsPrimaryCard = 1 AND c.IsToken = 0 AND l.Loc IS NOT NULL AND l.Loc != ''
+JOIN Localizations_enUS fmt ON c.TitleId = fmt.LocId AND fmt.Formatted = 1
+LEFT JOIN Localizations_enUS plain ON c.TitleId = plain.LocId AND plain.Formatted = 0
+       AND plain.Loc IS NOT NULL AND plain.Loc != ''
+WHERE c.IsPrimaryCard = 1 AND c.IsToken = 0 AND fmt.Loc IS NOT NULL AND fmt.Loc != ''
 """
 
 
