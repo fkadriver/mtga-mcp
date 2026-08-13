@@ -79,6 +79,22 @@ def test_fallback_skips_already_enriched_and_unrelated():
     assert conn.execute("SELECT scryfall_id FROM cards WHERE grp_id=600").fetchone()[0] is None
 
 
+def test_adventure_face_name_matches_combined_scryfall_name():
+    conn = db.connect(":memory:")
+    # MTGA/our catalog stores only the front-face name of an adventure card.
+    _seed(conn, [(800, "Smaug, the Great Calamity", "HOB")])
+    # Scryfall's top-level name is the combined "Front // Back"; the face name is the front.
+    card = _card("Smaug, the Great Calamity // Spew Flame", set_="hob",
+                 type_line="Legendary Creature", scryfall_id="smaug")
+    card["card_faces"] = [
+        {"name": "Smaug, the Great Calamity"},
+        {"name": "Spew Flame"},
+    ]
+    assert sf._apply_name_fallback(conn, [card]) == 1
+    row = conn.execute("SELECT type_line, scryfall_id FROM cards WHERE grp_id=800").fetchone()
+    assert row["type_line"] == "Legendary Creature" and row["scryfall_id"] == "smaug"
+
+
 def test_alchemy_prefix_not_name_matched():
     conn = db.connect(":memory:")
     _seed(conn, [(700, "A-The Meathook Massacre", "vow")])

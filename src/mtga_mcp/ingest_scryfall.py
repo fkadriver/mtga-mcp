@@ -13,7 +13,9 @@ via Anthologies/Jumpstart, etc.), so an arena_id-only join leaves ~7% of the cat
 un-enriched. A second pass fills those in by **name + set**, falling back to **name only**: the
 fields we attach (type line, oracle text, mana cost, legalities, colour identity, keywords) are
 card-level and identical across printings, so any printing of the same-named card is a correct
-source for them. Prices/image may then come from a different printing, which is acceptable for
+source for them. Adventure/split/DFC cards are matched on their individual ``card_faces[].name``
+too, since Scryfall's top-level name is the combined ``"Front // Back"`` while MTGA's catalog
+keys on a single face name. Prices/image may then come from a different printing, which is acceptable for
 these otherwise-metadata-less cards. Alchemy rebalanced cards (``A-...``) are intentionally left
 unmatched -- their oracle text differs from the paper card, so name-matching would be wrong.
 """
@@ -162,20 +164,33 @@ def _apply_name_fallback(conn: sqlite3.Connection, cards: Iterable[dict]) -> int
     # grp_id -> (priority, fields); priority 2 = name+set, 1 = name-only.
     best: dict[int, tuple[int, dict]] = {}
     for card in cards:
-        name = card.get("name")
-        if not name or card.get("id") is None:
+        if card.get("id") is None:
             continue
-        n = name.lower()
-        exact = name_set_idx.get((n, (card.get("set") or "").lower()))
-        loose = name_idx.get(n)
-        if not exact and not loose:
+        # Adventure/split/DFC cards carry a combined "Front // Back" top-level name, but MTGA's
+        # catalog keys on a single face name -- so also try each card_faces[].name.
+        candidates = []
+        if card.get("name"):
+            candidates.append(card["name"])
+        for face in card.get("card_faces") or []:
+            if face.get("name"):
+                candidates.append(face["name"])
+        if not candidates:
             continue
-        fields = _scryfall_fields(card)
-        for grp in exact or ():
-            best[grp] = (2, fields)
-        for grp in loose or ():
-            if best.get(grp, (0, None))[0] < 1:
-                best[grp] = (1, fields)
+        set_code = (card.get("set") or "").lower()
+        fields = None  # built lazily on first match
+        for cand in candidates:
+            n = cand.lower()
+            exact = name_set_idx.get((n, set_code))
+            loose = name_idx.get(n)
+            if not exact and not loose:
+                continue
+            if fields is None:
+                fields = _scryfall_fields(card)
+            for grp in exact or ():
+                best[grp] = (2, fields)
+            for grp in loose or ():
+                if best.get(grp, (0, None))[0] < 1:
+                    best[grp] = (1, fields)
 
     updated = 0
     for grp, (_prio, fields) in best.items():
