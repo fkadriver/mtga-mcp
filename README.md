@@ -73,13 +73,14 @@ running client's memory. (The scanner is adapted from the MIT-licensed
 `LICENSES/mtga-collection-exporter-MIT.txt`.)
 
 With MTGA running and the Collection screen opened once, and the card catalog already imported
-(`mtga-mcp import --catalog`):
+(`uv run mtga-mcp import --catalog`):
 
 ```bash
 scripts/export-collection.sh        # interactive: sudo password + confirm anchor cards
-# equivalently:
-sudo mtga-mcp export-collection
 ```
+
+Use the wrapper script rather than calling the command directly: under `sudo` the process runs
+as root, and the script passes your data-dir/DB path through so the right files are used.
 
 It's interactive by design:
 

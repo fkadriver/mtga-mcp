@@ -70,7 +70,7 @@ def _cmd_import_collection(args: argparse.Namespace) -> int:
     if res.unknown_grp_ids:
         print(
             f"            note: {res.unknown_grp_ids} grp_ids not in the local catalog; "
-            f"run `mtga-mcp import --catalog` to refresh, then re-import."
+            f"run `uv run mtga-mcp import --catalog` to refresh, then re-import."
         )
     print(f"\ndatabase:   {paths.DB_PATH}")
     return 0
@@ -103,7 +103,7 @@ def _cmd_export_collection(args: argparse.Namespace) -> int:
     try:
         known_ids = {r[0] for r in conn.execute("SELECT grp_id FROM cards")}
         if not known_ids:
-            print("No card catalog loaded — run `mtga-mcp import --catalog` first.")
+            print("No card catalog loaded — run `uv run mtga-mcp import --catalog` first.")
             return 1
 
         chosen = anchors.choose_anchors(conn, want=args.anchors)
@@ -135,8 +135,9 @@ def _cmd_export_collection(args: argparse.Namespace) -> int:
     )
     if res.unknown_grp_ids:
         print(
-            f"            note: {res.unknown_grp_ids} grp_ids not in the local catalog; "
-            f"run `mtga-mcp import --catalog` to refresh."
+            f"            note: {res.unknown_grp_ids} grp_ids aren't in the local catalog — "
+            f"usually filtered token/art printings (harmless). If you just updated MTGA, "
+            f"`uv run mtga-mcp import --catalog` may add a newly-released set."
         )
     print(f"\ndatabase:   {paths.DB_PATH}")
     return 0
