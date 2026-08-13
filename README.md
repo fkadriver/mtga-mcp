@@ -76,8 +76,13 @@ With MTGA running and the Collection screen opened once, the wrapper script does
 flow — venv bootstrap (first run only), memory scan, and import:
 
 ```bash
-scripts/export-collection.sh        # prompts once for your sudo password
+scripts/export-collection.sh        # interactive: sudo password + anchor cards
 ```
+
+The scanner is interactive: it prompts for your sudo password, and on the **first run** asks
+for a few "anchor" cards — real card names plus the exact quantities you own — which it uses
+to locate the collection in memory. Those are cached (`last_anchors.json`), so later runs just
+ask `Use these? [Y/n]`. Run it in a real terminal; don't pipe its stdin.
 
 Or run the steps by hand:
 

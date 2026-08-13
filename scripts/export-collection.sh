@@ -8,7 +8,14 @@
 #   3. imports the resulting mtga_collection.json via `uv run mtga-mcp import-collection`
 #
 # Prereqs: MTGA must be RUNNING with the Collection screen opened at least once, and
-# `uv` must be on PATH. You'll be prompted for your sudo password.
+# `uv` must be on PATH.
+#
+# This runs attached to your terminal because the exporter is interactive:
+#   - sudo prompts for your password;
+#   - on the FIRST run it asks for >=3 "anchor" cards -- real card names and the exact
+#     quantities you own -- which it uses to locate the collection in memory. These are
+#     cached in last_anchors.json, so later runs just prompt "Use these? [Y/n]" (Enter =yes).
+# Do not redirect stdin; the prompts need the keyboard.
 #
 # Usage:  scripts/export-collection.sh
 set -euo pipefail
@@ -29,10 +36,11 @@ if [[ ! -x "$VENV_PY" ]]; then
 fi
 
 # 2. Run the memory scanner. It needs root (task_for_pid) and always writes its output
-#    next to mtg.py. Feed a newline to satisfy the trailing "Press Enter to exit" prompt;
-#    sudo still reads the password from the terminal, not this pipe.
+#    next to mtg.py. Run it attached to the terminal -- it prompts for anchor cards (first
+#    run) / "Use these?" (later) and a final "Press Enter to exit"; do NOT pipe stdin.
 echo "==> Scanning MTGA memory (sudo required)…"
-printf '\n' | sudo "$VENV_PY" "$EXPORTER/mtg.py" --no-explorer
+echo "    First run: you'll be asked for a few cards you own (name + exact quantity)."
+sudo "$VENV_PY" "$EXPORTER/mtg.py" --no-explorer
 
 # The scanner runs as root, so its output files are root-owned. Hand them back so
 # future non-sudo runs (and the import below) aren't blocked.
