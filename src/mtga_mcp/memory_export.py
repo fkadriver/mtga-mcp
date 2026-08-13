@@ -1,8 +1,11 @@
 """Read the full owned collection out of the running MTGA client's process memory.
 
 Derived from MTGA-collection-exporter (https://github.com/NthPhantom10/MTGA-collection-exporter),
-MIT-licensed by NthPhantom10 -- see LICENSES/mtga-collection-exporter-MIT.txt. Adapted for
-mtga-mcp: this module knows nothing about card names or Scryfall. It takes a set of known
+MIT-licensed by NthPhantom10 -- see LICENSES/mtga-collection-exporter-MIT.txt. A pristine copy of
+the upstream source we ported from is kept at third_party/mtga-collection-exporter/mtg.py (see
+its UPSTREAM.md); run scripts/update-exporter-reference.sh to diff newer upstream against it and
+pull fixes back into this file. Adapted for mtga-mcp: this module knows nothing about card names
+or Scryfall. It takes a set of known
 arena_ids (our `cards` catalog) purely to *score* candidate memory blocks, plus a few "anchor"
 cards (arena_id + the exact owned quantity) whose 32-bit `(id, qty)` pair it searches for to
 locate the collection. It returns the raw ``{arena_id(grp_id): quantity}`` block, which the

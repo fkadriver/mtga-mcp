@@ -98,6 +98,13 @@ per-printing counts). Re-run it whenever you want to refresh.
 A legacy `mtga_collection.json` produced by the upstream exporter can still be loaded with
 `mtga-mcp import-collection <file>`.
 
+**Maintaining the scanner.** `src/mtga_mcp/memory_export.py` is *derived* from
+MTGA-collection-exporter. A pristine copy of the upstream source we ported from lives at
+`third_party/mtga-collection-exporter/mtg.py` (reference only — not imported). To pull upstream
+fixes, run `scripts/update-exporter-reference.sh` to diff newer upstream against that baseline,
+port the relevant hunks into `memory_export.py`, then re-run with `--accept` to advance the
+pinned commit. See `third_party/mtga-collection-exporter/UPSTREAM.md`.
+
 ## Use it from an MCP client
 
 ### Claude Code

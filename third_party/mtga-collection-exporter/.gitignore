@@ -1,0 +1,9 @@
+# This directory holds only a pristine upstream reference (mtg.py) + UPSTREAM.md.
+# Ignore any runtime artifacts if the reference is ever actually executed locally.
+.venv/
+__pycache__/
+*.pyc
+*.log
+arena_id_lookup*.json
+last_anchors.json
+mtga_collection*
