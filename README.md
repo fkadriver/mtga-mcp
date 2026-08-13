@@ -70,10 +70,18 @@ recovers wildcards plus *new* card grants captured going forward, never cards yo
 owned. To get the **complete** collection, dump it from the running client's memory with the
 vendored [MTGA-collection-exporter](https://github.com/NthPhantom10/MTGA-collection-exporter)
 (under `third_party/`, MIT-licensed, with a macOS SIGBUS fix already applied) and import the
-JSON it produces:
+JSON it produces.
+
+With MTGA running and the Collection screen opened once, the wrapper script does the whole
+flow — venv bootstrap (first run only), memory scan, and import:
 
 ```bash
-# with MTGA running and the Collection screen opened once:
+scripts/export-collection.sh        # prompts once for your sudo password
+```
+
+Or run the steps by hand:
+
+```bash
 cd third_party/mtga-collection-exporter
 uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt
 sudo ./.venv/bin/python mtg.py                   # writes mtga_collection.json (sudo on macOS)
