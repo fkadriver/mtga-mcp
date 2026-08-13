@@ -104,6 +104,31 @@ def test_bad_entries_skipped(tmp_path):
     assert rows == {55: 3}
 
 
+def test_ingest_block_writes_exact_per_printing_counts():
+    conn = db.connect(":memory:")
+    conn.execute("INSERT INTO cards(grp_id, name) VALUES (1, 'Known')")
+    conn.commit()
+    res = ingest_export.ingest_block(
+        conn, {1: 3, 2: 4, 3: 0},  # zero-qty entries dropped
+        source="memory-scan", export_date="2026-08-13T00:00:00+00:00",
+    )
+    rows = dict(conn.execute("SELECT grp_id, count FROM collection").fetchall())
+    assert rows == {1: 3, 2: 4}
+    assert res.grp_rows == 2 and res.total_copies == 7
+    assert res.unknown_grp_ids == 1  # grp_id 2 not in `cards`
+    assert db.get_meta(conn, "collection_source") == "memory-scan"
+    assert db.get_meta(conn, "collection_export_date") == "2026-08-13T00:00:00+00:00"
+
+
+def test_ingest_block_replaces_existing_collection():
+    conn = db.connect(":memory:")
+    conn.execute("INSERT INTO collection(grp_id, count) VALUES (999, 3)")
+    conn.commit()
+    ingest_export.ingest_block(conn, {42: 2})
+    rows = dict(conn.execute("SELECT grp_id, count FROM collection").fetchall())
+    assert rows == {42: 2}  # stale 999 gone
+
+
 def test_non_export_json_raises(tmp_path):
     conn = db.connect(":memory:")
     p = tmp_path / "junk.json"

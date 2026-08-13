@@ -67,37 +67,36 @@ occasionally for new sets/prices (it only re-downloads when Scryfall has newer d
 
 Modern MTGA clients no longer log the full owned-card list — `import --collection` only
 recovers wildcards plus *new* card grants captured going forward, never cards you already
-owned. To get the **complete** collection, dump it from the running client's memory with the
-vendored [MTGA-collection-exporter](https://github.com/NthPhantom10/MTGA-collection-exporter)
-(under `third_party/`, MIT-licensed, with a macOS SIGBUS fix already applied) and import the
-JSON it produces.
+owned. To get the **complete** collection, `export-collection` reads it straight out of the
+running client's memory. (The scanner is adapted from the MIT-licensed
+[MTGA-collection-exporter](https://github.com/NthPhantom10/MTGA-collection-exporter); see
+`LICENSES/mtga-collection-exporter-MIT.txt`.)
 
-With MTGA running and the Collection screen opened once, the wrapper script does the whole
-flow — venv bootstrap (first run only), memory scan, and import:
-
-```bash
-scripts/export-collection.sh        # interactive: sudo password + anchor cards
-```
-
-The scanner is interactive: it prompts for your sudo password, and on the **first run** asks
-for a few "anchor" cards — real card names plus the exact quantities you own — which it uses
-to locate the collection in memory. Those are cached (`last_anchors.json`), so later runs just
-ask `Use these? [Y/n]`. Run it in a real terminal; don't pipe its stdin.
-
-Or run the steps by hand:
+With MTGA running and the Collection screen opened once, and the card catalog already imported
+(`mtga-mcp import --catalog`):
 
 ```bash
-cd third_party/mtga-collection-exporter
-uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt
-sudo ./.venv/bin/python mtg.py                   # writes mtga_collection.json (sudo on macOS)
-cd ../..
-uv run mtga-mcp import-collection third_party/mtga-collection-exporter/mtga_collection.json
+scripts/export-collection.sh        # interactive: sudo password + confirm anchor cards
+# equivalently:
+sudo mtga-mcp export-collection
 ```
 
-This **replaces** the `collection` table with an authoritative, point-in-time snapshot
-(counts per printing, summed across printings for deck buildability). Re-run it whenever you
-want to refresh. On macOS the scanner needs `sudo` (it uses `task_for_pid`); the target MTGA
-process must not use the hardened runtime (the Heroic/native build does not).
+It's interactive by design:
+
+- **sudo** — the macOS scan uses `task_for_pid`, which needs root. The target MTGA process
+  must not use the hardened runtime (the Heroic/native build is fine).
+- **anchor cards** — the scanner locates your collection in memory by searching for the exact
+  `(card, quantity)` of a few cards you own. It proposes ~5 rares/mythics pulled from your
+  last-imported collection and lets you confirm or adjust them (`e2` to edit a quantity, `a` to
+  add, `d2` to drop, Enter to accept). The quantities must match what you own **right now**, so
+  edit any that changed since your last export. On a first-ever run (empty collection) you add a
+  few cards manually. Run it in a real terminal; don't pipe its stdin.
+
+This **replaces** the `collection` table with an authoritative, point-in-time snapshot (exact
+per-printing counts). Re-run it whenever you want to refresh.
+
+A legacy `mtga_collection.json` produced by the upstream exporter can still be loaded with
+`mtga-mcp import-collection <file>`.
 
 ## Use it from an MCP client
 

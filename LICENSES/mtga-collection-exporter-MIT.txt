@@ -1,3 +1,18 @@
+The memory-scanning code in src/mtga_mcp/memory_export.py is derived from
+MTGA-collection-exporter by NthPhantom10:
+
+    https://github.com/NthPhantom10/MTGA-collection-exporter
+
+It is used and modified here under the terms of its MIT license, reproduced
+below. Modifications for mtga-mcp: the card database and anchor cards are
+sourced from this project's own SQLite catalog/collection instead of a Scryfall
+download; process discovery uses `pgrep` instead of psutil; the file-writing and
+interactive-anchor code was replaced; and the scanner returns the raw
+{grp_id: quantity} block for direct import. The macOS SIGBUS fix (using
+mach_vm_read_overwrite) is also carried over.
+
+----------------------------------------------------------------------
+
 MIT License
 
 Copyright (c) 2026 NthPhantom10

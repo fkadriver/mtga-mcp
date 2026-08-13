@@ -76,6 +76,72 @@ def _cmd_import_collection(args: argparse.Namespace) -> int:
     return 0
 
 
+def _chown_outputs_to_sudo_user() -> None:
+    """When run under sudo, hand our DB (and its WAL sidecars) back to the invoking user so a
+    later non-sudo run isn't locked out by root-owned files."""
+    import os
+    from pathlib import Path
+
+    sudo_uid = os.environ.get("SUDO_UID")
+    if not sudo_uid:
+        return
+    uid = int(sudo_uid)
+    gid = int(os.environ.get("SUDO_GID") or -1)
+    for suffix in ("", "-wal", "-shm"):
+        try:
+            os.chown(Path(f"{paths.DB_PATH}{suffix}"), uid, gid)
+        except (FileNotFoundError, PermissionError):
+            pass
+
+
+def _cmd_export_collection(args: argparse.Namespace) -> int:
+    from datetime import datetime, timezone
+
+    from . import anchors, memory_export
+
+    conn = db.connect()
+    try:
+        known_ids = {r[0] for r in conn.execute("SELECT grp_id FROM cards")}
+        if not known_ids:
+            print("No card catalog loaded — run `mtga-mcp import --catalog` first.")
+            return 1
+
+        chosen = anchors.choose_anchors(conn, want=args.anchors)
+        if len(chosen) < anchors.MIN_ANCHORS:
+            print("Aborted: need at least 3 anchor cards.")
+            return 1
+
+        print("\nScanning MTGA memory…")
+        block = memory_export.scan(known_ids, chosen)
+        if not block:
+            print(
+                "\nScan failed: couldn't locate the collection in memory. Check that MTGA is "
+                "running with the Collection screen opened, that your anchor quantities are "
+                "exact, and (macOS) that you ran with sudo."
+            )
+            return 1
+
+        res = ingest_export.ingest_block(
+            conn, block, source="memory-scan",
+            export_date=datetime.now(timezone.utc).isoformat(),
+        )
+    finally:
+        conn.close()
+
+    _chown_outputs_to_sudo_user()
+    print(
+        f"\ncollection: {res.grp_rows} printings / {res.total_copies} copies "
+        f"scanned from MTGA memory"
+    )
+    if res.unknown_grp_ids:
+        print(
+            f"            note: {res.unknown_grp_ids} grp_ids not in the local catalog; "
+            f"run `mtga-mcp import --catalog` to refresh."
+        )
+    print(f"\ndatabase:   {paths.DB_PATH}")
+    return 0
+
+
 def _cmd_serve(_args: argparse.Namespace) -> int:
     from . import server
 
@@ -263,6 +329,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     impc.add_argument("export", help="Path to mtga_collection.json")
     impc.set_defaults(func=_cmd_import_collection)
+
+    exp = sub.add_parser(
+        "export-collection",
+        help="Scan the running MTGA client's memory for your full collection and import it "
+             "(replaces the current collection). macOS needs sudo.",
+    )
+    exp.add_argument("--anchors", type=int, default=5,
+                     help="How many anchor cards to propose from your collection (default 5)")
+    exp.set_defaults(func=_cmd_export_collection)
 
     srv = sub.add_parser("serve", help="Run the MCP server over stdio")
     srv.set_defaults(func=_cmd_serve)
