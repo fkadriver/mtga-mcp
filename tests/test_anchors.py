@@ -37,6 +37,18 @@ def test_candidates_prefers_rares_mythics_then_count():
     assert c[0].quantity == 1 and c[1].quantity == 4
 
 
+def test_candidates_exclude_alchemy_rebalanced():
+    conn = db.connect(":memory:")
+    conn.executemany(
+        "INSERT INTO cards(grp_id, name, rarity) VALUES(?,?,?)",
+        [(1, "A-Sheoldred, the Apocalypse", "mythic"), (2, "Lightning Bolt", "rare")],
+    )
+    conn.executemany("INSERT INTO collection(grp_id, count) VALUES(?,?)", [(1, 4), (2, 4)])
+    conn.commit()
+    # The A- rebalanced mythic sorts first but must be skipped for the paper rare.
+    assert [a.name for a in anchors.candidates_from_db(conn, want=5)] == ["Lightning Bolt"]
+
+
 def test_resolve_card_case_insensitive():
     conn = _conn()
     a = anchors.resolve_card(conn, "lightning bolt")

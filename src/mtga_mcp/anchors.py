@@ -32,6 +32,10 @@ def candidates_from_db(conn: sqlite3.Connection, want: int = DEFAULT_WANT) -> Li
 
     Higher owned counts are preferred (a `(id, 4)` pair is more distinctive in memory than a
     `(id, 1)` that many singletons share), then name for stability.
+
+    Alchemy *rebalanced* printings (name-prefixed ``A-``) are excluded: they sort first
+    alphabetically and would otherwise crowd out every proposal, but their digital-only grpids
+    make unreliable memory anchors.
     """
     rows = conn.execute(
         """
@@ -40,6 +44,7 @@ def candidates_from_db(conn: sqlite3.Connection, want: int = DEFAULT_WANT) -> Li
         FROM collection co
         JOIN cards c ON c.grp_id = co.grp_id
         WHERE co.count BETWEEN 1 AND 4 AND c.name IS NOT NULL AND c.name != ''
+              AND c.name NOT LIKE 'A-%'
         ORDER BY rk, count DESC, name
         LIMIT ?
         """,
