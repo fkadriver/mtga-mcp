@@ -267,11 +267,25 @@ def _cmd_deck_craft(args: argparse.Namespace) -> int:
     return 0
 
 
+def _prompt_best_of(input_fn=input) -> int | None:
+    """Ask for Bo1/Bo3 (or Enter = either). Returns 1, 3, or None."""
+    while True:
+        choice = input_fn("Best-of?  [1] Bo1   [3] Bo3   [Enter] either  > ").strip()
+        if choice == "":
+            return None
+        if choice in ("1", "3"):
+            return int(choice)
+        print("  enter 1, 3, or just press Enter.")
+
+
 def _cmd_deck_best(args: argparse.Namespace) -> int:
+    best_of = args.best_of
+    if best_of is None and sys.stdin.isatty():
+        best_of = _prompt_best_of()
     conn = db.connect_readonly()
     try:
         _pretty(deck_analysis.best_buildable_deck(
-            conn, best_of=args.best_of, fmt=args.format, max_wildcards=args.max_wildcards,
+            conn, best_of=best_of, fmt=args.format, max_wildcards=args.max_wildcards,
             include_illegal=args.include_illegal,
         ))
     finally:
@@ -326,7 +340,8 @@ def _add_deck_commands(sub) -> None:
     craft.set_defaults(func=_cmd_deck_craft)
 
     best = dsub.add_parser("best", help="Best deck you could build given your cards + meta")
-    best.add_argument("--best-of", type=int, choices=(1, 3), dest="best_of")
+    best.add_argument("--best-of", type=int, choices=(1, 3), dest="best_of",
+                      help="1 or 3; prompted interactively if omitted on a terminal")
     best.add_argument("--format", help="Restrict to a format")
     best.add_argument("--max-wildcards", type=int, dest="max_wildcards",
                       help="Hide decks needing more than this many wildcards")
