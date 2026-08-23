@@ -307,7 +307,12 @@ def _render_best_list(results: list[dict]) -> None:
     print(f"\nBest buildable decks ({len(results)} shown), strongest first:\n")
     for i, r in enumerate(results, 1):
         bo = f"Bo{r['best_of']}" if r["best_of"] else "Bo1/3"
-        tag = "✓ buildable now" if r["buildable_now"] else f"needs {_fmt_wildcards(r['wildcards_needed'])}"
+        if r["buildable_now"]:
+            tag = "✓ buildable now"
+        elif r.get("craftable_now"):
+            tag = f"🔓 craftable now — spend {_fmt_wildcards(r['wildcards_needed'])}"
+        else:
+            tag = f"needs {_fmt_wildcards(r['wildcards_needed'])}"
         print(f"  [{i}] {r['name']}")
         print(f"      {r['format']} {bo}   score {r['score']}   {tag}")
 

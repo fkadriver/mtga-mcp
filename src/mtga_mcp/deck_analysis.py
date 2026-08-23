@@ -222,6 +222,7 @@ def best_buildable_deck(
     default -- a deck you can't actually play isn't a real answer. Pass ``include_illegal=True``
     to keep them (each result carries ``format_legal`` and any ``illegal_cards``). Formats
     without legality data (Alchemy/Timeless) are never excluded on legality grounds."""
+    owned_wc = _wildcards_owned(conn)
     results: list[dict] = []
     for d in _decks(conn, best_of=best_of, fmt=fmt):
         illegal = _illegal_cards(conn, d["id"], d["format"])
@@ -231,6 +232,13 @@ def best_buildable_deck(
         total_wc = sum(gap["wildcards_needed"].values())
         if max_wildcards is not None and total_wc > max_wildcards:
             continue
+        # "Craftable now" = every missing card is a wildcard we already own enough of, and
+        # nothing is unresolved (unknown cards can't be crafted through a wildcard).
+        craftable_now = (
+            not gap["buildable"]
+            and not gap["unresolved"]
+            and all(need <= owned_wc.get(r, 0) for r, need in gap["wildcards_needed"].items())
+        )
         strength = _strength(d)
         buildability = 1.0 / (1.0 + total_wc)
         results.append({
@@ -244,6 +252,7 @@ def best_buildable_deck(
             "wildcards_needed_total": total_wc,
             "wildcards_needed": gap["wildcards_needed"],
             "buildable_now": gap["buildable"],
+            "craftable_now": craftable_now,
             "format_legal": None if illegal is None else not illegal,
             "illegal_cards": illegal or [],
             "score": round(strength * buildability, 4),

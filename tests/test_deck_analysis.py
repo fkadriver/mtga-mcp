@@ -69,6 +69,19 @@ def test_gap_missing_cards_and_wildcards(conn):
     assert gap["buildable"] is False
 
 
+def test_craftable_now_flag(conn):
+    res = {r["name"]: r for r in deck_analysis.best_buildable_deck(conn)}
+    # Aggro is fully owned: buildable, not "craftable" (nothing to spend).
+    assert res["Aggro"]["buildable_now"] is True and res["Aggro"]["craftable_now"] is False
+    # Control needs 4 uncommon Counterspell; fixture owns 10 uncommon WCs -> flips w/ wildcards.
+    assert res["Control"]["buildable_now"] is False
+    assert res["Control"]["craftable_now"] is True
+    # Drop uncommon wildcards below the need -> no longer craftable.
+    conn.execute("UPDATE wildcards SET count = 2 WHERE kind = 'uncommon'")
+    res2 = {r["name"]: r for r in deck_analysis.best_buildable_deck(conn)}
+    assert res2["Control"]["craftable_now"] is False
+
+
 def test_arena_decklist_roundtrips_with_sideboard(conn):
     _store(conn, "WithSB", "Standard", best_of=3,
            text="Deck\n4 Lightning Bolt (STA) 42\n4 Island (FDN) 270\n\n"
