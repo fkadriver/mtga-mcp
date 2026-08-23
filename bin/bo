@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Interactive best-buildable-deck picker. Prompts for Bo1/Bo3, format, and wildcard budget,
-# then lets you drill into any listed deck. On PATH via .envrc while in the project dir.
+# then lets you drill into any listed deck (missing cards + MTGA export). On PATH via .envrc
+# while in the project dir.
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
 exec "$REPO_ROOT/.venv/bin/mtga-mcp" deck wizard "$@"

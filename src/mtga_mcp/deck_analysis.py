@@ -112,6 +112,27 @@ def deck_gap(conn: sqlite3.Connection, deck: int | str) -> dict:
     }
 
 
+def arena_decklist(conn: sqlite3.Connection, deck: int | str) -> str:
+    """Render a deck as MTGA-importable text (paste into Arena's deck importer).
+
+    Uses the plain ``<qty> <name>`` form under ``Deck`` / ``Sideboard`` headers, which Arena
+    matches by name -- robust even when we don't have a set/collector for every card."""
+    row = _resolve_deck(conn, deck)
+    if row is None:
+        raise ValueError(f"No deck matching {deck!r}")
+    main: list[str] = []
+    side: list[str] = []
+    for r in conn.execute(
+        "SELECT card_name, quantity, board FROM deck_cards WHERE deck_id = ? ORDER BY rowid",
+        (row["id"],),
+    ):
+        (side if r["board"] == "side" else main).append(f"{r['quantity']} {r['card_name']}")
+    lines = ["Deck", *main]
+    if side:
+        lines += ["", "Sideboard", *side]
+    return "\n".join(lines)
+
+
 def craft_priority(conn: sqlite3.Connection, *, fmt: str | None = None) -> list[dict]:
     """Rank cards to craft by how many decks they unlock (then frequency)."""
     deck_rows = _decks(conn, fmt=fmt)

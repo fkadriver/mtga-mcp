@@ -361,7 +361,12 @@ def _cmd_deck_wizard(args: argparse.Namespace) -> int:
             if not raw.isdigit() or not (1 <= int(raw) <= len(results)):
                 print("  enter a listed number, or Enter to finish.")
                 continue
-            _render_gap(deck_analysis.deck_gap(conn, results[int(raw) - 1]["deck_id"]))
+            deck_id = results[int(raw) - 1]["deck_id"]
+            _render_gap(deck_analysis.deck_gap(conn, deck_id))
+            exp = input("  Export this deck for MTGA import (paste into Arena)?  "
+                        "[y] yes / [Enter] no  > ").strip().lower()
+            if exp in ("y", "yes"):
+                print("\n" + deck_analysis.arena_decklist(conn, deck_id) + "\n")
     finally:
         conn.close()
 

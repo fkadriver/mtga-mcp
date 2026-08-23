@@ -69,6 +69,20 @@ def test_gap_missing_cards_and_wildcards(conn):
     assert gap["buildable"] is False
 
 
+def test_arena_decklist_roundtrips_with_sideboard(conn):
+    _store(conn, "WithSB", "Standard", best_of=3,
+           text="Deck\n4 Lightning Bolt (STA) 42\n4 Island (FDN) 270\n\n"
+                "Sideboard\n2 Counterspell (STA) 16\n")
+    out = deck_analysis.arena_decklist(conn, "WithSB")
+    assert out.startswith("Deck\n")
+    assert "4 Lightning Bolt" in out and "4 Island" in out
+    assert "\nSideboard\n2 Counterspell" in out
+    # Parsing our own export back yields the same cards -> importable form is faithful.
+    reparsed = {(c.name, c.board): c.quantity for c in decklist.parse_decklist(out)}
+    assert reparsed[("Lightning Bolt", "main")] == 4
+    assert reparsed[("Counterspell", "side")] == 2
+
+
 def test_gap_excludes_basics(conn):
     gap = deck_analysis.deck_gap(conn, "Aggro")
     assert all(m["name"] != "Island" for m in gap["missing_cards"])
