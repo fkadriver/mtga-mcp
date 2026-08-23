@@ -293,6 +293,79 @@ def _cmd_deck_best(args: argparse.Namespace) -> int:
     return 0
 
 
+def _fmt_wildcards(wc: dict) -> str:
+    order = ("mythic", "rare", "uncommon", "common")
+    parts = [f"{wc[r]} {r}" for r in order if wc.get(r)]
+    return ", ".join(parts) if parts else "none"
+
+
+def _render_best_list(results: list[dict]) -> None:
+    if not results:
+        print("\nNo decks match those filters. Import some decks first "
+              "(`mtga-mcp deck import ...`), or loosen the filters.")
+        return
+    print(f"\nBest buildable decks ({len(results)} shown), strongest first:\n")
+    for i, r in enumerate(results, 1):
+        bo = f"Bo{r['best_of']}" if r["best_of"] else "Bo1/3"
+        tag = "✓ buildable now" if r["buildable_now"] else f"needs {_fmt_wildcards(r['wildcards_needed'])}"
+        print(f"  [{i}] {r['name']}")
+        print(f"      {r['format']} {bo}   score {r['score']}   {tag}")
+
+
+def _render_gap(gap: dict) -> None:
+    print(f"\n{gap['name']} — {gap['format']}")
+    if gap["buildable"]:
+        print("  ✓ fully buildable with your current collection.")
+    else:
+        print(f"  missing {gap['total_missing_copies']} copies; "
+              f"wildcards needed: {_fmt_wildcards(gap['wildcards_needed'])}")
+        for m in gap["missing_cards"]:
+            print(f"    {m['missing']}x {m['name']} ({m['rarity']})")
+        if gap["unresolved"]:
+            print(f"  unresolved (not in catalog): {', '.join(gap['unresolved'])}")
+    owned = gap["wildcards_owned"]
+    print(f"  wildcards owned: {_fmt_wildcards(owned)}")
+
+
+def _cmd_deck_wizard(args: argparse.Namespace) -> int:
+    interactive = sys.stdin.isatty()
+    preset = getattr(args, "best_of", None)
+    if preset is not None:
+        best_of = preset
+        print(f"Best-of: {preset}")
+    else:
+        best_of = _prompt_best_of() if interactive else None
+
+    fmt = None
+    budget = None
+    if interactive:
+        raw = input("Format?  (e.g. Standard, Historic; [Enter] any)  > ").strip()
+        fmt = raw or None
+        raw = input("Max wildcards to spend?  (number; [Enter] no cap)  > ").strip()
+        if raw.isdigit():
+            budget = int(raw)
+
+    conn = db.connect_readonly()
+    try:
+        results = deck_analysis.best_buildable_deck(
+            conn, best_of=best_of, fmt=fmt, max_wildcards=budget, include_illegal=False,
+        )
+        results = results[:15]
+        _render_best_list(results)
+        if not results or not interactive:
+            return 0
+        while True:
+            raw = input("\nInspect a deck's missing cards?  [number] / [Enter] done  > ").strip()
+            if raw == "":
+                return 0
+            if not raw.isdigit() or not (1 <= int(raw) <= len(results)):
+                print("  enter a listed number, or Enter to finish.")
+                continue
+            _render_gap(deck_analysis.deck_gap(conn, results[int(raw) - 1]["deck_id"]))
+    finally:
+        conn.close()
+
+
 def _cmd_deck_delete(args: argparse.Namespace) -> int:
     conn = db.connect()
     try:
@@ -348,6 +421,12 @@ def _add_deck_commands(sub) -> None:
     best.add_argument("--include-illegal", action="store_true", dest="include_illegal",
                       help="Keep decks with cards not legal in their format (flagged, not hidden)")
     best.set_defaults(func=_cmd_deck_best)
+
+    wiz = dsub.add_parser(
+        "wizard", help="Interactive picker: choose Bo/format/budget, then drill into any deck")
+    wiz.add_argument("--best-of", type=int, choices=(1, 3), dest="best_of",
+                     help="Preset Bo1/Bo3 and skip that prompt")
+    wiz.set_defaults(func=_cmd_deck_wizard)
 
     dele = dsub.add_parser("delete", help="Delete a stored deck")
     dele.add_argument("deck", help="Deck id or name")
