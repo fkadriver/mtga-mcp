@@ -94,10 +94,38 @@ def _chown_outputs_to_sudo_user() -> None:
             pass
 
 
+def _reexec_with_sudo(args: argparse.Namespace) -> None:
+    """On macOS the memory scan needs root (`task_for_pid`). If we're not root, re-exec the
+    whole command under sudo *up front* -- before anchors are chosen -- preserving the invoking
+    user's data dir/DB path so writes land in their home, not root's. No-op elsewhere / as root."""
+    import os
+
+    if sys.platform != "darwin" or os.geteuid() == 0:
+        return
+    print("Memory scanning needs root (task_for_pid) — elevating with sudo…")
+    inner = [
+        sys.executable, "-m", "mtga_mcp.cli", "export-collection",
+        "--anchors", str(args.anchors),
+    ]
+    cmd = [
+        "sudo", "env",
+        f"MTGA_MCP_DATA_DIR={paths.DATA_DIR}",
+        f"MTGA_MCP_DB_PATH={paths.DB_PATH}",
+        *inner,
+    ]
+    try:
+        os.execvp("sudo", cmd)
+    except FileNotFoundError:
+        print("  ✗ `sudo` not found; re-run this command with root privileges yourself.")
+        raise SystemExit(1)
+
+
 def _cmd_export_collection(args: argparse.Namespace) -> int:
     from datetime import datetime, timezone
 
     from . import anchors, memory_export
+
+    _reexec_with_sudo(args)
 
     conn = db.connect()
     try:
@@ -116,8 +144,8 @@ def _cmd_export_collection(args: argparse.Namespace) -> int:
         if not block:
             print(
                 "\nScan failed: couldn't locate the collection in memory. Check that MTGA is "
-                "running with the Collection screen opened, that your anchor quantities are "
-                "exact, and (macOS) that you ran with sudo."
+                "running with the Collection screen opened once, and that your anchor "
+                "quantities exactly match what you own right now."
             )
             return 1
 

@@ -76,16 +76,19 @@ With MTGA running and the Collection screen opened once, and the card catalog al
 (`uv run mtga-mcp import --catalog`):
 
 ```bash
-scripts/export-collection.sh        # interactive: sudo password + confirm anchor cards
+uv run mtga-mcp export-collection   # interactive: sudo password + confirm anchor cards
 ```
 
-Use the wrapper script rather than calling the command directly: under `sudo` the process runs
-as root, and the script passes your data-dir/DB path through so the right files are used.
+The command **self-elevates**: on macOS, if it isn't already root it re-execs itself under
+`sudo` up front (before anchors are chosen), passing your data-dir/DB path through so writes
+land in your home, not root's, and hands the DB back to you afterward. `scripts/export-collection.sh`
+remains as an equivalent wrapper (it also runs `uv sync` first).
 
 It's interactive by design:
 
-- **sudo** — the macOS scan uses `task_for_pid`, which needs root. The target MTGA process
-  must not use the hardened runtime (the Heroic/native build is fine).
+- **sudo** — the macOS scan uses `task_for_pid`, which needs root, so you'll be prompted for
+  your password. The target MTGA process must not use the hardened runtime (the Heroic/native
+  build is fine).
 - **anchor cards** — the scanner locates your collection in memory by searching for the exact
   `(card, quantity)` of a few cards you own. It proposes ~5 rares/mythics pulled from your
   last-imported collection and lets you confirm or adjust them (`e2` to edit a quantity, `a` to
