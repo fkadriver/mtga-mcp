@@ -95,14 +95,18 @@ def _chown_outputs_to_sudo_user() -> None:
 
 
 def _reexec_with_sudo(args: argparse.Namespace) -> None:
-    """On macOS the memory scan needs root (`task_for_pid`). If we're not root, re-exec the
-    whole command under sudo *up front* -- before anchors are chosen -- preserving the invoking
-    user's data dir/DB path so writes land in their home, not root's. No-op elsewhere / as root."""
+    """The memory scan needs root: `task_for_pid` on macOS, `/proc/<pid>/mem` on Linux (where
+    Yama `ptrace_scope=1` refuses even a same-uid process). If we're not root, re-exec the whole
+    command under sudo *up front* -- before anchors are chosen -- preserving the invoking user's
+    data dir/DB path so writes land in their home, not root's. No-op elsewhere / as root."""
     import os
 
-    if sys.platform != "darwin" or os.geteuid() == 0:
+    reason = {"darwin": "task_for_pid", "linux": "/proc/<pid>/mem"}.get(
+        "linux" if sys.platform.startswith("linux") else sys.platform
+    )
+    if reason is None or os.geteuid() == 0:
         return
-    print("Memory scanning needs root (task_for_pid) — elevating with sudo…")
+    print(f"Memory scanning needs root ({reason}) — elevating with sudo…")
     inner = [
         sys.executable, "-m", "mtga_mcp.cli", "export-collection",
         "--anchors", str(args.anchors),
@@ -466,7 +470,7 @@ def build_parser() -> argparse.ArgumentParser:
     exp = sub.add_parser(
         "export-collection",
         help="Scan the running MTGA client's memory for your full collection and import it "
-             "(replaces the current collection). macOS needs sudo.",
+             "(replaces the current collection). macOS/Linux need sudo (handled automatically).",
     )
     exp.add_argument("--anchors", type=int, default=5,
                      help="How many anchor cards to propose from your collection (default 5)")

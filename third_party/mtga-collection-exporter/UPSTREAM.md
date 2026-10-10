@@ -2,7 +2,7 @@
 
 - **Upstream:** https://github.com/NthPhantom10/MTGA-collection-exporter
 - **License:** MIT (see `../../LICENSES/mtga-collection-exporter-MIT.txt`)
-- **Pinned baseline commit:** `1df9ee79610a90b4e688c28e329cfdebc93b980b`
+- **Pinned baseline commit:** `e1424956f1a8f92c7fa28c607a0fcc3fb625ef62`
 
 ## What this is
 
@@ -11,7 +11,8 @@
 executed. The maintained, in-tree version of the scanner is
 [`src/mtga_mcp/memory_export.py`](../../src/mtga_mcp/memory_export.py), which is *derived* from
 this file (macOS SIGBUS fix, catalog-driven card lookup, `pgrep` process discovery, DB-seeded
-anchors, raw `{grp_id: qty}` output).
+anchors, raw `{grp_id: qty}` output, and a chunked pattern scan shared by the macOS/Linux
+readers that covers regions of any size instead of skipping ones over 256 MiB).
 
 ## Why keep it
 

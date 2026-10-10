@@ -19,19 +19,33 @@ candidates by how many ids we recognise and how many anchors they contain.
 macOS reads memory via the Mach VM API; ``task_for_pid`` requires root (run under sudo). The
 read path uses ``mach_vm_read_overwrite`` (a synchronous copy into our buffer) rather than
 ``mach_vm_read``: a fault comes back as a KERN error here instead of being deferred to a SIGBUS
-when we later touch a not-actually-resident page in a lazily-mapped out-of-line copy. Windows
-support uses ``pymem`` (imported lazily; not a hard dependency).
+when we later touch a not-actually-resident page in a lazily-mapped out-of-line copy. Linux reads
+``/proc/<pid>/mem`` with ``pread`` (root, or ptrace permission on the target). Windows support
+uses ``pymem`` (imported lazily; not a hard dependency).
+
+Both native readers share `_ChunkedPatternScan`, which scans each readable region in bounded
+chunks with a pattern-length overlap, so a region of any size is covered without materialising it
+in one buffer. Every reader's ``read_bytes`` returns exactly the requested length, zero-filling
+whatever it could not read, so byte offsets in the buffer stay aligned with real addresses.
+
+Neither reader filters regions by size -- a real client keeps live heap in regions well over the
+256 MiB the upstream exporter skipped. They filter on *content* instead: a region with no
+resident and no swapped-out pages is untouched reserved address space (Unity reserves gigabytes
+of it), so it cannot hold the collection, and reading it would fault zero-fill pages into the
+game and balloon its footprint. macOS gets those counters from ``mach_vm_region_recurse``, Linux
+from ``/proc/<pid>/smaps``.
 """
 
 from __future__ import annotations
 
 import ctypes
+import os
 import re
 import struct
 import subprocess
 import sys
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Sequence, Set, Tuple
 
 if TYPE_CHECKING:
     from .anchors import Anchor
@@ -50,42 +64,160 @@ class ScanConfig:
 
 
 def _find_mtga_pid(process_name: str = "MTGA") -> int:
-    """Return the pid of the running MTGA client via `pgrep`, or raise."""
-    try:
-        out = subprocess.run(
-            ["pgrep", "-x", process_name],
-            capture_output=True, text=True, check=False,
-        ).stdout.split()
-    except FileNotFoundError as exc:  # no pgrep
-        raise RuntimeError("`pgrep` not available to locate the MTGA process") from exc
-    if not out:
-        raise RuntimeError(f"Process not found: {process_name} (is MTGA running?)")
-    return int(out[0])
+    """Return the pid of the running MTGA client via `pgrep`, or raise.
+
+    Tries the bare name first (native macOS build), then `<name>.exe` -- under Wine/Proton the
+    Linux process keeps the PE's name, so Heroic-launched MTGA shows up as `MTGA.exe`."""
+    for name in (process_name, f"{process_name}.exe"):
+        try:
+            out = subprocess.run(
+                ["pgrep", "-x", name],
+                capture_output=True, text=True, check=False,
+            ).stdout.split()
+        except FileNotFoundError as exc:  # no pgrep
+            raise RuntimeError("`pgrep` not available to locate the MTGA process") from exc
+        if out:
+            return int(out[0])
+    raise RuntimeError(f"Process not found: {process_name} (is MTGA running?)")
+
+
+_SMAPS_HEADER = re.compile(r"^[0-9a-f]+-[0-9a-f]+\s+\S{4}\s")
+
+
+def _parse_proc_maps(maps: str) -> Iterator[Tuple[int, int]]:
+    """Yield (address, size) for each readable region in /proc/<pid>/maps content.
+
+    Skips the kernel's pseudo-mappings and device maps: reading those either errors or, worse,
+    can block, and the collection is never in them."""
+    for line in maps.splitlines():
+        parts = line.split()
+        if len(parts) < 5 or not parts[1].startswith("r"):
+            continue
+        path = parts[5] if len(parts) > 5 else ""
+        if path in ("[vvar]", "[vsyscall]") or path.startswith("/dev/"):
+            continue
+        lo, _, hi = parts[0].partition("-")
+        try:
+            start, end = int(lo, 16), int(hi, 16)
+        except ValueError:
+            continue
+        if end > start:
+            yield start, end - start
+
+
+def _parse_proc_smaps(smaps: str) -> Iterator[Tuple[int, int]]:
+    """Yield (address, size) for readable /proc/<pid>/smaps regions that hold real pages.
+
+    smaps is maps plus per-mapping counters, so this is the Linux equivalent of the macOS
+    residency filter: a mapping with Rss == Swap == 0 is untouched reserved space (Unity reserves
+    gigabytes of it), and reading it would only fault zero pages into the target process."""
+    addr: Optional[Tuple[int, int]] = None
+    rss = swap = 0
+
+    def _emit():
+        if addr and _region_has_pages(rss, swap):
+            return addr
+        return None
+
+    for line in smaps.splitlines():
+        header = _SMAPS_HEADER.match(line)
+        if header:
+            done = _emit()
+            if done:
+                yield done
+            addr, rss, swap = None, 0, 0
+            region = next(_parse_proc_maps(line), None)
+            if region:
+                addr = region
+            continue
+        key, _, value = line.partition(":")
+        if key == "Rss":
+            rss = int(value.split()[0])
+        elif key == "Swap":
+            swap = int(value.split()[0])
+    done = _emit()
+    if done:
+        yield done
+
+
+def _region_has_pages(pages_resident: int, pages_swapped_out: int) -> bool:
+    """Whether a VM region holds any real data, resident or paged out.
+
+    Both counters zero means the region is reserved address space that has never been written,
+    so it cannot hold the collection -- and reading it would only fault zero pages into the
+    target. Swapped-out pages are real data, so such regions must still be scanned."""
+    return bool(pages_resident or pages_swapped_out)
+
+
+class _ChunkedPatternScan:
+    """`pattern_scan_all` over `_readable_regions()`, in terms of a reader's `read_bytes`.
+
+    Regions are walked in `_SCAN_CHUNK` slices overlapped by len(pattern)-1 bytes so a pattern
+    straddling a chunk boundary is still found. Chunking (rather than one read per region) is
+    what lets us scan regions of *any* size: reading a multi-gigabyte region into a single buffer
+    is what forced the upstream exporter to skip large regions outright, and the collection can
+    well live in one of them."""
+
+    _SCAN_CHUNK = 16 << 20  # bytes held in memory at once while searching
+
+    def pattern_scan_all(self, pattern: bytes, return_multiple: bool = False) -> List[int]:
+        results: List[int] = []
+        overlap = len(pattern) - 1
+        for addr, size in self._readable_regions():
+            pos = 0
+            while pos < size:
+                want = min(self._SCAN_CHUNK, size - pos)
+                try:
+                    data = self.read_bytes(addr + pos, want)
+                except OSError:
+                    break
+                offset = 0
+                while True:
+                    idx = data.find(pattern, offset)
+                    if idx == -1:
+                        break
+                    results.append(addr + pos + idx)
+                    if not return_multiple:
+                        return results
+                    offset = idx + 1
+                # Re-read the trailing `overlap` bytes in the next slice; a final slice too
+                # short to overlap just ends the region (and always advances, so we terminate).
+                pos += want - overlap if want > overlap else want
+        return results
 
 
 if sys.platform == "darwin":
 
-    class MacOSMem:
+    class MacOSMem(_ChunkedPatternScan):
         """macOS process-memory reader using the Mach VM API."""
 
         _KERN_SUCCESS = 0
-        _VM_REGION_BASIC_INFO_64 = 9
-        _VM_REGION_BASIC_INFO_COUNT_64 = 9
         _VM_PROT_READ = 0x01
         _CHUNK = 1 << 20  # 1 MiB per mach_vm_read_overwrite call
 
-        class _RegionInfo(ctypes.Structure):
+        class _SubmapInfo(ctypes.Structure):
+            """`vm_region_submap_info_64` -- the recurse variant, which (unlike
+            `vm_region_basic_info_64`) carries the page-residency counters we filter on."""
+
             _pack_ = 4
             _fields_ = [
                 ("protection", ctypes.c_int32),
                 ("max_protection", ctypes.c_int32),
                 ("inheritance", ctypes.c_uint32),
-                ("shared", ctypes.c_uint32),
-                ("reserved", ctypes.c_uint32),
                 ("offset", ctypes.c_uint64),
+                ("user_tag", ctypes.c_uint32),
+                ("pages_resident", ctypes.c_uint32),
+                ("pages_shared_now_private", ctypes.c_uint32),
+                ("pages_swapped_out", ctypes.c_uint32),
+                ("pages_dirtied", ctypes.c_uint32),
+                ("ref_count", ctypes.c_uint32),
+                ("shadow_depth", ctypes.c_uint16),
+                ("external_pager", ctypes.c_uint8),
+                ("share_mode", ctypes.c_uint8),
+                ("is_submap", ctypes.c_int32),
                 ("behavior", ctypes.c_int32),
+                ("object_id", ctypes.c_uint32),
                 ("user_wired_count", ctypes.c_uint16),
-                ("_pad", ctypes.c_uint16),
             ]
 
         def __init__(self, process_name: str = "MTGA"):
@@ -112,10 +244,10 @@ if sys.platform == "darwin":
                 ctypes.c_uint, ctypes.c_uint64, ctypes.c_uint64,
                 ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64),
             ]
-            lib.mach_vm_region.restype = ctypes.c_int
-            lib.mach_vm_region.argtypes = [
+            lib.mach_vm_region_recurse.restype = ctypes.c_int
+            lib.mach_vm_region_recurse.argtypes = [
                 ctypes.c_uint, ctypes.POINTER(ctypes.c_uint64), ctypes.POINTER(ctypes.c_uint64),
-                ctypes.c_int, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint), ctypes.POINTER(ctypes.c_uint),
+                ctypes.POINTER(ctypes.c_uint32), ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint),
             ]
 
         def read_bytes(self, address: int, length: int) -> bytes:
@@ -145,43 +277,102 @@ if sys.platform == "darwin":
                 remaining -= n
             return bytes(out)
 
-        def _readable_regions(self):
+        def _readable_regions(self) -> Iterator[Tuple[int, int]]:
+            """Yield (address, size) for readable regions that hold actual pages.
+
+            Uses `mach_vm_region_recurse` rather than `mach_vm_region` so submaps are descended
+            into: the flat call reports Unity's multi-gigabyte *reservations* as single coalesced
+            entries (40 GiB of address space on a real client, vs 13 GiB of real mappings).
+
+            Regions with no resident *and* no swapped-out pages are skipped -- nothing has ever
+            been written there, so the collection cannot be in one, and reading it would fault
+            zero-fill pages into the target process and balloon its footprint. Swapped pages
+            count as live: that data exists, it is merely paged out."""
             addr = ctypes.c_uint64(0)
+            depth = ctypes.c_uint32(0)
             while True:
                 size = ctypes.c_uint64(0)
-                info = self._RegionInfo()
-                cnt = ctypes.c_uint(self._VM_REGION_BASIC_INFO_COUNT_64)
-                obj = ctypes.c_uint(0)
-                kr = self._lib.mach_vm_region(
+                info = self._SubmapInfo()
+                cnt = ctypes.c_uint(ctypes.sizeof(self._SubmapInfo) // 4)
+                kr = self._lib.mach_vm_region_recurse(
                     self._task.value, ctypes.byref(addr), ctypes.byref(size),
-                    self._VM_REGION_BASIC_INFO_64, ctypes.byref(info),
-                    ctypes.byref(cnt), ctypes.byref(obj),
+                    ctypes.byref(depth), ctypes.byref(info), ctypes.byref(cnt),
                 )
                 if kr != self._KERN_SUCCESS:
                     break
-                if info.protection & self._VM_PROT_READ:
+                if info.is_submap:
+                    depth.value += 1
+                    continue  # recurse into it; address must not advance
+                if (info.protection & self._VM_PROT_READ) and _region_has_pages(
+                    info.pages_resident, info.pages_swapped_out
+                ):
                     yield addr.value, size.value
                 addr.value += size.value
 
-        def pattern_scan_all(self, pattern: bytes, return_multiple: bool = False) -> List[int]:
-            results: List[int] = []
-            for addr, size in self._readable_regions():
-                if size > 256 * 1024 * 1024:
-                    continue
+
+if sys.platform.startswith("linux"):
+
+    class LinuxMem(_ChunkedPatternScan):
+        """Linux process-memory reader using /proc/<pid>/{maps,mem}.
+
+        Works for the Wine/Proton (Heroic) build as well as a native one: Wine runs the PE in an
+        ordinary Linux process, so the collection sits in that process's address space like any
+        other heap data. Needs root, or ptrace permission on the target -- with Yama
+        `ptrace_scope=1` (the common default) even a same-uid process is refused, hence sudo."""
+
+        _CHUNK = 1 << 20  # bytes per pread
+
+        def __init__(self, process_name: str = "MTGA"):
+            self.process_id = _find_mtga_pid(process_name)
+            try:
+                self._fd = os.open(f"/proc/{self.process_id}/mem", os.O_RDONLY)
+            except PermissionError as exc:
+                raise PermissionError(
+                    f"cannot open /proc/{self.process_id}/mem ({exc}). Run with sudo, or allow "
+                    "ptrace of a same-uid process (/proc/sys/kernel/yama/ptrace_scope)."
+                ) from exc
+            except OSError as exc:
+                raise RuntimeError(f"cannot open /proc/{self.process_id}/mem: {exc}") from exc
+
+        def read_bytes(self, address: int, length: int) -> bytes:
+            # Zero-fill anything we cannot read -- an unreadable or short-read chunk must still
+            # occupy its slot so buffer offsets keep matching addresses (same contract as the
+            # macOS reader). pread on /proc/<pid>/mem short-reads at region edges.
+            if address < 0 or length <= 0:
+                return b""
+            out = bytearray()
+            cur = address
+            remaining = length
+            while remaining > 0:
+                n = min(remaining, self._CHUNK)
                 try:
-                    data = self.read_bytes(addr, size)
+                    got = os.pread(self._fd, n, cur)
                 except OSError:
-                    continue
-                offset = 0
-                while True:
-                    idx = data.find(pattern, offset)
-                    if idx == -1:
-                        break
-                    results.append(addr + idx)
-                    if not return_multiple:
-                        return results
-                    offset = idx + 1
-            return results
+                    got = b""
+                out += got[:n]
+                if len(got) < n:
+                    out += b"\x00" * (n - len(got))
+                cur += n
+                remaining -= n
+            return bytes(out)
+
+        def _readable_regions(self) -> Iterator[Tuple[int, int]]:
+            # smaps carries Rss/Swap so we can skip untouched reservations; it is slower to read
+            # and not always available, so fall back to plain maps (scans more, still correct).
+            try:
+                with open(f"/proc/{self.process_id}/smaps") as fh:
+                    yield from _parse_proc_smaps(fh.read())
+                return
+            except OSError:
+                pass
+            with open(f"/proc/{self.process_id}/maps") as fh:
+                yield from _parse_proc_maps(fh.read())
+
+        def close(self) -> None:
+            fd = getattr(self, "_fd", None)
+            if fd is not None:
+                os.close(fd)
+                self._fd = None
 
 
 class MemoryScanner:
@@ -206,8 +397,10 @@ class MemoryScanner:
                 import pymem  # optional, Windows-only
 
                 self.pm = pymem.Pymem("MTGA.exe")
+            elif sys.platform.startswith("linux"):
+                self.pm = LinuxMem("MTGA")
             else:
-                raise RuntimeError("Memory scanning is supported only on macOS/Windows.")
+                raise RuntimeError(f"Memory scanning is not supported on {sys.platform}.")
             return True
         except Exception as exc:
             print(f"\n✗ Cannot attach to MTGA: {exc}")
@@ -248,7 +441,8 @@ class MemoryScanner:
 
     def _scan_anchor(self, anchor: "Anchor") -> List[int]:
         pattern = struct.pack("<II", anchor.arena_id, anchor.quantity)
-        if sys.platform != "darwin":
+        if sys.platform == "win32":
+            # pymem's pattern_scan_all takes a regex; our native readers take raw bytes.
             pattern = re.escape(pattern)
         try:
             return self.pm.pattern_scan_all(pattern, return_multiple=True)
