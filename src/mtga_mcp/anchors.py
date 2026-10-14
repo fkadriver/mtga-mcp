@@ -33,9 +33,12 @@ def candidates_from_db(conn: sqlite3.Connection, want: int = DEFAULT_WANT) -> Li
     Higher owned counts are preferred (a `(id, 4)` pair is more distinctive in memory than a
     `(id, 1)` that many singletons share), then name for stability.
 
-    Alchemy *rebalanced* printings (name-prefixed ``A-``) are excluded: they sort first
-    alphabetically and would otherwise crowd out every proposal, but their digital-only grpids
-    make unreliable memory anchors.
+    Alchemy *rebalanced* printings are excluded: they sort first alphabetically and would
+    otherwise crowd out every proposal, but their digital-only grpids make unreliable memory
+    anchors. Most got a clean ``A-`` name from catalog ingestion, but a card whose grpid has
+    since been superseded by a newer rebalance stops being `IsPrimaryCard` in MTGA's catalog,
+    so `ingest_catalog` never re-syncs its name -- it can sit forever with the raw
+    ``<sprite="SpriteSheet_MiscIcons" name="arena_a">`` markup instead. Match both forms.
     """
     rows = conn.execute(
         """
@@ -44,7 +47,7 @@ def candidates_from_db(conn: sqlite3.Connection, want: int = DEFAULT_WANT) -> Li
         FROM collection co
         JOIN cards c ON c.grp_id = co.grp_id
         WHERE co.count BETWEEN 1 AND 4 AND c.name IS NOT NULL AND c.name != ''
-              AND c.name NOT LIKE 'A-%'
+              AND c.name NOT LIKE 'A-%' AND c.name NOT LIKE '%arena_a%'
         ORDER BY rk, count DESC, name
         LIMIT ?
         """,

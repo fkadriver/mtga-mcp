@@ -49,6 +49,22 @@ def test_candidates_exclude_alchemy_rebalanced():
     assert [a.name for a in anchors.candidates_from_db(conn, want=5)] == ["Lightning Bolt"]
 
 
+def test_candidates_exclude_stale_uncleaned_alchemy_name():
+    # A rebalanced card whose grpid stopped being IsPrimaryCard never gets its name re-synced
+    # to the clean "A-" form by ingest_catalog, and sits with the raw sprite markup instead.
+    conn = db.connect(":memory:")
+    conn.executemany(
+        "INSERT INTO cards(grp_id, name, rarity) VALUES(?,?,?)",
+        [
+            (1, '<sprite="SpriteSheet_MiscIcons" name="arena_a">Karn, Living Legacy', "mythic"),
+            (2, "Lightning Bolt", "rare"),
+        ],
+    )
+    conn.executemany("INSERT INTO collection(grp_id, count) VALUES(?,?)", [(1, 4), (2, 4)])
+    conn.commit()
+    assert [a.name for a in anchors.candidates_from_db(conn, want=5)] == ["Lightning Bolt"]
+
+
 def test_resolve_card_case_insensitive():
     conn = _conn()
     a = anchors.resolve_card(conn, "lightning bolt")
