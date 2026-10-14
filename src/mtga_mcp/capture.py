@@ -46,18 +46,33 @@ def _latest_log_mtime(files: list) -> float:
     return max((f.stat().st_mtime for f in files), default=0.0)
 
 
-def _read_all_logs(files: list) -> str:
-    parts: list[str] = []
+def _read_logs(files: list) -> list[str]:
+    """Each log file's text, kept separate and in `files`' order (current session first --
+    see `paths.detailed_log_files`). SeqId only increases monotonically *within* one
+    file/session: a fresh MTGA session rotates Player.log and restarts SeqId at 1, so the new
+    log's SeqId 1 can be numerically *lower* than stale entries still sitting in
+    Player-prev.log. Keeping files separate (rather than one concatenated blob) lets
+    `capture()` pick "latest" per-file instead of by a single global max(SeqId), which would
+    otherwise resurrect the previous session's snapshot after every restart."""
+    texts: list[str] = []
     for path in files:
         try:
-            parts.append(path.read_text(encoding="utf-8", errors="replace"))
+            texts.append(path.read_text(encoding="utf-8", errors="replace"))
         except OSError:
-            continue
-    return "\n".join(parts)
+            texts.append("")
+    return texts
+
+
+# MTGA omits a WildCard* field from InventoryInfo entirely once it hits 0, rather than writing
+# e.g. "WildCardRares":0 (confirmed across 904 archived payloads: these four are the only
+# fields ever missing -- Gold/Gems/TotalVaultProgress are present in every single one). So an
+# absent wildcard count defaults to 0, not unknown; the others still default to None.
+_WILDCARD_KINDS = {"common", "uncommon", "rare", "mythic"}
 
 
 def _snapshot_from_inventory(inv: dict) -> dict:
-    snap = {kind: None for kind in ("common", "uncommon", "rare", "mythic", "gold", "gems", "vault")}
+    snap = {kind: (0 if kind in _WILDCARD_KINDS else None)
+            for kind in ("common", "uncommon", "rare", "mythic", "gold", "gems", "vault")}
     for field, kind in _INVENTORY_FIELDS.items():
         value = inv.get(field)
         if isinstance(value, (int, float)):
@@ -115,33 +130,39 @@ def capture(conn: sqlite3.Connection, *, force: bool = False) -> CaptureResult:
         return CaptureResult(new_raw=0, total_raw=total_raw, snapshot=None,
                              changes_seen=0, skipped=True)
 
-    text = _read_all_logs(files)
+    texts = _read_logs(files)
     now = datetime.now(timezone.utc).isoformat()
 
-    inventories = _extract_all_json_objects(text, '"InventoryInfo"')
     new_raw = 0
     changes_seen = 0
-    latest: tuple[int, dict] | None = None  # (seq_id, inventory) with the highest SeqId
+    # (seq_id, inventory) from the first (most current) file that has any InventoryInfo --
+    # NOT the global-max SeqId, which would wrongly prefer a stale Player-prev.log entry
+    # whenever the current session hasn't racked up as high a SeqId yet (see `_read_logs`).
+    latest: tuple[int, dict] | None = None
 
     with conn:
-        for inv in inventories:
-            seq = inv.get("SeqId")
-            if not isinstance(seq, int):
-                continue
-            payload = json.dumps(inv, separators=(",", ":"))
-            cur = conn.execute(
-                "INSERT OR IGNORE INTO inventory_raw(seq_id, payload_hash, captured_at, payload) "
-                "VALUES(?,?,?,?)",
-                (seq, db.payload_hash(payload), now, payload),
-            )
-            new_raw += cur.rowcount
-            if cur.rowcount:
-                # Only apply deltas the first time we archive a payload -- the log file
-                # commonly still contains this same entry on the next run, and re-applying it
-                # would double-count the cards it granted.
-                changes_seen += _apply_card_changes(conn, inv)
-            if latest is None or seq > latest[0]:
-                latest = (seq, inv)
+        for text in texts:
+            file_latest: tuple[int, dict] | None = None
+            for inv in _extract_all_json_objects(text, '"InventoryInfo"'):
+                seq = inv.get("SeqId")
+                if not isinstance(seq, int):
+                    continue
+                payload = json.dumps(inv, separators=(",", ":"))
+                cur = conn.execute(
+                    "INSERT OR IGNORE INTO inventory_raw(seq_id, payload_hash, captured_at, payload) "
+                    "VALUES(?,?,?,?)",
+                    (seq, db.payload_hash(payload), now, payload),
+                )
+                new_raw += cur.rowcount
+                if cur.rowcount:
+                    # Only apply deltas the first time we archive a payload -- the log file
+                    # commonly still contains this same entry on the next run, and re-applying
+                    # it would double-count the cards it granted.
+                    changes_seen += _apply_card_changes(conn, inv)
+                if file_latest is None or seq > file_latest[0]:
+                    file_latest = (seq, inv)
+            if latest is None and file_latest is not None:
+                latest = file_latest
 
         snapshot: dict | None = None
         if latest is not None:

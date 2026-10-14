@@ -32,9 +32,10 @@ def conn() -> sqlite3.Connection:
 
 
 def _fake_logs(monkeypatch, text: str) -> None:
-    """Bypass the filesystem: no log files, canned text (use force=True to skip mtime guard)."""
+    """Bypass the filesystem: no log files, canned text as a single "current" file
+    (use force=True to skip mtime guard)."""
     monkeypatch.setattr(capture.paths, "detailed_log_files", lambda max_utc=1: [])
-    monkeypatch.setattr(capture, "_read_all_logs", lambda files: text)
+    monkeypatch.setattr(capture, "_read_logs", lambda files: [text])
 
 
 def test_capture_archives_each_seqid_and_snapshots_latest(conn, monkeypatch):
@@ -44,7 +45,7 @@ def test_capture_archives_each_seqid_and_snapshots_latest(conn, monkeypatch):
     assert res.total_raw == 2
     assert res.snapshot["common"] == 152  # highest SeqId (5) wins
     assert res.snapshot["mythic"] == 10
-    assert res.snapshot["rare"] is None  # WildCardRares absent
+    assert res.snapshot["rare"] == 0  # WildCardRares absent -> MTGA omits it at 0, not unknown
     hist = conn.execute("SELECT common, mythic, gems FROM inventory_history").fetchone()
     assert (hist["common"], hist["mythic"], hist["gems"]) == (152, 10, 1380)
 
@@ -60,7 +61,7 @@ def test_capture_dedups_by_seqid(conn, monkeypatch):
 def test_capture_accumulates_new_seqid_across_runs(conn, monkeypatch):
     _fake_logs(monkeypatch, INV_5)
     capture.capture(conn, force=True)
-    monkeypatch.setattr(capture, "_read_all_logs", lambda files: INV_7_WITH_CHANGES)
+    monkeypatch.setattr(capture, "_read_logs", lambda files: [INV_7_WITH_CHANGES])
     res = capture.capture(conn, force=True)
     assert res.new_raw == 1
     assert res.total_raw == 2
@@ -96,7 +97,7 @@ def test_capture_archives_both_sides_of_a_seqid_collision(conn, monkeypatch):
     )
     _fake_logs(monkeypatch, INV_7_WITH_CHANGES)
     capture.capture(conn, force=True)
-    monkeypatch.setattr(capture, "_read_all_logs", lambda files: same_seq_other_session)
+    monkeypatch.setattr(capture, "_read_logs", lambda files: [same_seq_other_session])
     res = capture.capture(conn, force=True)
     assert res.new_raw == 1
     assert res.total_raw == 2
@@ -104,6 +105,21 @@ def test_capture_archives_both_sides_of_a_seqid_collision(conn, monkeypatch):
     assert conn.execute(
         "SELECT count FROM collection WHERE grp_id = 103489"
     ).fetchone()["count"] == 1
+
+
+def test_capture_snapshot_prefers_current_file_over_higher_stale_seqid(conn, monkeypatch):
+    """A restart rotates Player.log and resets SeqId to 1; the previous session's
+    Player-prev.log can still be sitting there with a numerically higher SeqId. The snapshot
+    must reflect the current file (SeqId 1, no WildCardRares key -> rare absent/0), not the
+    stale prev-log entry (SeqId 5, rare wildcards present) just because 5 > 1."""
+    monkeypatch.setattr(capture.paths, "detailed_log_files", lambda max_utc=1: [])
+    current_session = INV_1  # SeqId 1, fresh post-restart Player.log
+    stale_prev_session = INV_5  # SeqId 5, left over in Player-prev.log from before the restart
+    monkeypatch.setattr(capture, "_read_logs", lambda files: [current_session, stale_prev_session])
+    res = capture.capture(conn, force=True)
+    assert res.snapshot["common"] == 10  # INV_1's value, not INV_5's 152
+    assert res.snapshot["rare"] == 0  # INV_1 has no WildCardRares key -> 0, not INV_5's rares
+    assert res.new_raw == 2  # both still archived into inventory_raw
 
 
 def test_capture_handles_no_inventory(conn, monkeypatch):
