@@ -41,6 +41,10 @@ The join key is MTGA's `GrpId`, which equals Scryfall's `arena_id`. Everything l
 uv sync
 ```
 
+With [direnv](https://direnv.net/) (`direnv allow` once), `cd`-ing into the repo puts
+`mtga-mcp`/`bo`/`bo1`/`bo3` on `PATH`. For a menu over the common commands (deck wizard,
+bulk-import, capture, ...) instead of remembering flags, run `./launch`.
+
 ### Step 0 — enable MTGA Detailed Logs (required for owned counts)
 
 MTGA only writes your collection to `Player.log` when detailed logging is on:

@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+#
+# launch — mtga-mcp interactive menu
+#
+# Opt-in interactive environment: activates the project venv, puts bin/ (bo/bo1/bo3) and
+# .venv/bin (mtga-mcp) on PATH, then shows a menu over the common commands. Mirrors the
+# pattern used by ~/git/photoAlbumOrganizer/launch. Does NOT run automatically on `cd` —
+# .envrc only sets up PATH/venv for that; this is a deliberate `./launch` (or `bo-menu`,
+# if symlinked onto PATH).
+#
+# Usage:
+#   ./launch
+#   bash ~/git/mtga-mcp/launch
+
+set -euo pipefail
+
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV="$PROJECT_DIR/.venv"
+
+if [ ! -f "$VENV/bin/activate" ]; then
+    echo ""
+    echo "  Error: venv not found at $VENV"
+    echo "  Create it with: uv sync"
+    echo ""
+    exit 1
+fi
+
+# shellcheck disable=SC1091
+source "$VENV/bin/activate"
+export PATH="$PROJECT_DIR/bin:$PATH"
+cd "$PROJECT_DIR"
+
+_drop_to_shell() {
+    echo ""
+    echo "  venv + bo/bo1/bo3 active. Type 'exit' to return here, or close the terminal to leave."
+    echo ""
+    VIRTUAL_ENV_PROMPT="mtga-mcp" exec "${SHELL}" -i
+}
+
+_prompt() {
+    # _prompt "label" "default"  -> echoes the entered value (or default on empty Enter)
+    local label="$1" default="${2:-}" value=""
+    read -r -p "$label" value || true
+    echo "${value:-$default}"
+}
+
+_menu() {
+    echo ""
+    echo "=========================================="
+    echo "  mtga-mcp"
+    echo "=========================================="
+    echo "  [w] Deck wizard — best deck you can build now"
+    echo "  [b] Bulk-import meta decks (Moxfield)"
+    echo "  [d] List stored decks"
+    echo "  [g] Deck gap — cards/wildcards missing for a deck"
+    echo "  [p] Craft priority — best cards to craft"
+    echo "  [i] Import catalog + collection + Scryfall data"
+    echo "  [e] Export collection (memory scan; needs sudo)"
+    echo "  [c] Capture inventory snapshot"
+    echo "  [h] Wildcard/currency history"
+    echo "  [s] Shell  (venv + bo/bo1/bo3 active)"
+    echo "  [q] Quit"
+    echo "=========================================="
+    local choice=""
+    if read -r -p "  Your choice [w]: " choice 2>/dev/null; then
+        choice="${choice:-w}"
+    else
+        choice="w"
+    fi
+    echo ""
+
+    case "$choice" in
+        w|W) mtga-mcp deck wizard; _menu ;;
+        b|B)
+            fmt=$(_prompt "  Format (e.g. Standard; Enter = any): " "")
+            count=$(_prompt "  How many decks? [10]: " "10")
+            sort=$(_prompt "  Sort by updated/views/likes/created [updated]: " "updated")
+            if [ -n "$fmt" ]; then
+                mtga-mcp deck bulk-import --format "$fmt" --count "$count" --sort "$sort"
+            else
+                mtga-mcp deck bulk-import --count "$count" --sort "$sort"
+            fi
+            _menu
+            ;;
+        d|D) mtga-mcp deck list; _menu ;;
+        g|G)
+            name=$(_prompt "  Deck id or name: " "")
+            if [ -n "$name" ]; then mtga-mcp deck gap "$name"; fi
+            _menu
+            ;;
+        p|P) mtga-mcp deck craft-priority; _menu ;;
+        i|I) mtga-mcp import --all; _menu ;;
+        e|E) mtga-mcp export-collection; _menu ;;
+        c|C) mtga-mcp capture; _menu ;;
+        h|H) mtga-mcp history; _menu ;;
+        s|S) _drop_to_shell ;;
+        q|Q) echo "  Bye."; exit 0 ;;
+        *) echo "  Unknown choice '${choice}'. Try again."; _menu ;;
+    esac
+}
+
+_menu
