@@ -32,9 +32,9 @@ cd "$PROJECT_DIR"
 
 _drop_to_shell() {
     echo ""
-    echo "  venv + bo/bo1/bo3 active. Type 'exit' to return here, or close the terminal to leave."
+    echo "  venv + bo/bo1/bo3 active. Type 'exit' to return to this menu."
     echo ""
-    VIRTUAL_ENV_PROMPT="mtga-mcp" exec "${SHELL}" -i
+    VIRTUAL_ENV_PROMPT="mtga-mcp" "${SHELL}" -i || true
 }
 
 _prompt() {
@@ -93,7 +93,7 @@ _menu() {
         e|E) mtga-mcp export-collection; _menu ;;
         c|C) mtga-mcp capture; _menu ;;
         h|H) mtga-mcp history; _menu ;;
-        s|S) _drop_to_shell ;;
+        s|S) _drop_to_shell; _menu ;;
         q|Q) echo "  Bye."; exit 0 ;;
         *) echo "  Unknown choice '${choice}'. Try again."; _menu ;;
     esac
