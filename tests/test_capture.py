@@ -50,6 +50,23 @@ def test_capture_archives_each_seqid_and_snapshots_latest(conn, monkeypatch):
     assert (hist["common"], hist["mythic"], hist["gems"]) == (152, 10, 1380)
 
 
+def test_capture_syncs_wildcards_table_from_snapshot(conn, monkeypatch):
+    """`deck_analysis`'s craftable/buildable checks and collection_summary read the
+    `wildcards` table, not `inventory_history` -- it must track the live snapshot too, or it
+    goes stale forever after the one-time export-collection/import-collection scan that
+    originally populated it."""
+    conn.executemany(
+        "INSERT INTO wildcards(kind, count) VALUES(?,?)",
+        [("rare", 6), ("mythic", 13)],  # stale values from a prior export-collection run
+    )
+    conn.commit()
+    _fake_logs(monkeypatch, INV_1)  # no WildCardRares key -> current rare count is 0
+    capture.capture(conn, force=True)
+    wc = {r["kind"]: r["count"] for r in conn.execute("SELECT kind, count FROM wildcards")}
+    assert wc["rare"] == 0  # overwritten, not left at the stale 6
+    assert wc["common"] == 10  # INV_1's WildCardCommons
+
+
 def test_capture_dedups_by_seqid(conn, monkeypatch):
     _fake_logs(monkeypatch, INV_1 + "\n" + INV_5)
     capture.capture(conn, force=True)

@@ -175,6 +175,17 @@ def capture(conn: sqlite3.Connection, *, force: bool = False) -> CaptureResult:
                 (now, seq, snapshot["common"], snapshot["uncommon"], snapshot["rare"],
                  snapshot["mythic"], snapshot["gold"], snapshot["gems"], snapshot["vault"]),
             )
+            # Keep the `wildcards` table (deck_analysis's craftable/buildable checks,
+            # collection_summary) in sync too -- it's otherwise only written by a one-time
+            # export-collection/import-collection scan and would silently go stale forever
+            # as packs are opened and wildcards crafted/spent between those manual runs.
+            for kind, value in snapshot.items():
+                if value is not None:
+                    conn.execute(
+                        "INSERT INTO wildcards(kind, count) VALUES(?, ?) "
+                        "ON CONFLICT(kind) DO UPDATE SET count = excluded.count",
+                        (kind, value),
+                    )
 
         total_raw = conn.execute("SELECT COUNT(*) FROM inventory_raw").fetchone()[0]
         db.set_meta(conn, _MTIME_KEY, repr(latest_mtime))
