@@ -57,6 +57,7 @@ _menu() {
     echo "  [i] Import catalog + collection + Scryfall data"
     echo "  [e] Export collection (memory scan; needs sudo)"
     echo "  [c] Capture inventory snapshot"
+    echo "  [n] Current wildcards/currency (just now, no history)"
     echo "  [h] Wildcard/currency history"
     echo "  [s] Shell  (venv + bo/bo1/bo3 active)"
     echo "  [q] Quit"
@@ -92,6 +93,7 @@ _menu() {
         i|I) mtga-mcp import --all; _menu ;;
         e|E) mtga-mcp export-collection; _menu ;;
         c|C) mtga-mcp capture; _menu ;;
+        n|N) mtga-mcp history --limit 1; _menu ;;
         h|H) mtga-mcp history; _menu ;;
         s|S) _drop_to_shell; _menu ;;
         q|Q) echo "  Bye."; exit 0 ;;
