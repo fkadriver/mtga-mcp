@@ -242,6 +242,34 @@ def _cmd_deck_import(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_deck_bulk_import(args: argparse.Namespace) -> int:
+    fetched_list = deck_sources.search_moxfield(args.format, count=args.count, sort=args.sort)
+    if not fetched_list:
+        print("No decks found for those filters.")
+        return 0
+    conn = db.connect()
+    imported = skipped = 0
+    try:
+        for fetched in fetched_list:
+            exists = conn.execute(
+                "SELECT 1 FROM decks WHERE source_url = ?", (fetched.source_url,)
+            ).fetchone()
+            if exists:
+                skipped += 1
+                continue
+            stored = decklist.store_deck(
+                conn, name=fetched.name, fmt=args.format or fetched.fmt, cards=fetched.cards,
+                source=fetched.source, source_url=fetched.source_url,
+                best_of=args.best_of if args.best_of is not None else fetched.best_of,
+            )
+            imported += 1
+            print(f"  imported #{stored.deck_id}: {fetched.name} ({stored.resolved} cards resolved)")
+    finally:
+        conn.close()
+    print(f"bulk-import: {imported} imported, {skipped} already present")
+    return 0
+
+
 def _cmd_deck_list(_args: argparse.Namespace) -> int:
     conn = db.connect_readonly()
     try:
@@ -417,6 +445,18 @@ def _add_deck_commands(sub) -> None:
     imp.set_defaults(func=_cmd_deck_import)
 
     dsub.add_parser("list", help="List stored decks").set_defaults(func=_cmd_deck_list)
+
+    bulk = dsub.add_parser(
+        "bulk-import", help="Import the top N meta decks for a format from Moxfield's public search")
+    bulk.add_argument("--source", choices=("moxfield",), default="moxfield",
+                       help="Deck list source (only moxfield for now)")
+    bulk.add_argument("--format", help="Format to search, e.g. Standard/Historic/Alchemy")
+    bulk.add_argument("--count", type=int, default=10, help="How many decks to pull (max 50)")
+    bulk.add_argument("--sort", choices=("updated", "views", "likes", "created"), default="updated",
+                       help="Rank by recency/views/likes/creation (default: updated)")
+    bulk.add_argument("--best-of", type=int, choices=(1, 3), dest="best_of",
+                       help="Tag all imported decks as 1 or 3 (otherwise left unknown)")
+    bulk.set_defaults(func=_cmd_deck_bulk_import)
 
     gap = dsub.add_parser("gap", help="Wildcards/cards needed to build a deck")
     gap.add_argument("deck", help="Deck id or name")

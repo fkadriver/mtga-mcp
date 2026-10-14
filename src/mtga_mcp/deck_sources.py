@@ -4,6 +4,9 @@ Durable, ToS-clean paths: pasted text, and the public JSON APIs of Archidekt and
 The MTGGoldfish path is a best-effort scraper gated behind an explicit flag — the meta sites
 block automated access (Cloudflare, robots ai-train=no), so it may fail and callers should
 fall back to pasting the Arena export.
+
+Moxfield's public ``search-sfw`` endpoint additionally gives a *bulk* source: the top N decks
+for a format, ranked by views/likes/recency, with no auth or signup needed (``search_moxfield``).
 """
 
 from __future__ import annotations
@@ -117,6 +120,38 @@ def _from_moxfield(url: str) -> FetchedDeck:
         name=data.get("name") or f"Moxfield {deck_id}", fmt=data.get("format"),
         cards=cards, source="moxfield", source_url=url,
     )
+
+
+_MOXFIELD_SORTS = {"updated", "views", "likes", "created"}
+
+
+def search_moxfield(fmt: str | None, *, count: int = 10, sort: str = "updated") -> list[FetchedDeck]:
+    """Top N public Moxfield decks for a format, ranked by ``sort`` (views/likes/updated/created).
+
+    One search call lists candidates (name/id only), then each is fetched individually via
+    ``_from_moxfield`` for its actual card list -- a failed individual fetch is skipped rather
+    than aborting the whole batch.
+    """
+    if sort not in _MOXFIELD_SORTS:
+        raise ValueError(f"Unknown sort {sort!r}. Choose from: {', '.join(sorted(_MOXFIELD_SORTS))}")
+    count = max(1, min(count, 50))
+    params = {"pageSize": count, "pageNumber": 1, "sortType": sort, "sortDirection": "descending"}
+    if fmt:
+        params["fmt"] = fmt.lower().replace(" ", "")
+    resp = httpx.get(
+        "https://api2.moxfield.com/v2/decks/search-sfw", params=params, headers=_HEADERS, timeout=30,
+    )
+    resp.raise_for_status()
+    results: list[FetchedDeck] = []
+    for entry in resp.json().get("data", []):
+        url = entry.get("publicUrl")
+        if not url:
+            continue
+        try:
+            results.append(_from_moxfield(url))
+        except (httpx.HTTPError, ValueError):
+            continue
+    return results
 
 
 def from_scrape(url: str, *, enable: bool = False) -> FetchedDeck:

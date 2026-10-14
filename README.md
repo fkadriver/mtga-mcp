@@ -198,6 +198,17 @@ endpoints. So this tool imports decklists from **pasted text** and **deck-host p
 `--allow-scrape` flag but is brittle and may fail; pasting the Arena export (one click in your
 browser) is the reliable path.
 
+Moxfield's public `search-sfw` endpoint also gives a **bulk** path — no pasting one deck at a
+time:
+
+```bash
+uv run mtga-mcp deck bulk-import --format Standard --count 20 --sort views
+```
+
+Pulls the top N public Moxfield decks for a format (ranked by `views`/`likes`/`updated`/
+`created`), importing each. Already-imported decks (matched by source URL) are skipped on
+repeat runs, so it's safe to re-run periodically to pick up newly posted decks.
+
 ## Scheduled capture (wildcards + future card deltas)
 
 Modern MTGA clients don't log your full owned-card collection — only `InventoryInfo`
