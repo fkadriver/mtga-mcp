@@ -133,6 +133,26 @@ def test_best_buildable_unreported_win_rate_is_not_penalized(conn):
     assert ranked["Mystery"]["win_rate"] is None
 
 
+def test_best_buildable_averages_multiple_known_signals(conn):
+    # A deck with win_rate 0.4 AND tier "1" (weight 1.0) averages to 0.7 -- it does not sum
+    # to 1.4 just because it happens to carry two known signals instead of one.
+    _store(conn, "MultiSignal", "Explorer", best_of=1, win_rate=0.4, tier="1",
+           text="Deck\n4 Island (FDN) 270\n")
+    _store(conn, "SingleSignal", "Explorer", best_of=1, win_rate=0.7,
+           text="Deck\n4 Island (FDN) 270\n")
+    ranked = {r["name"]: r for r in deck_analysis.best_buildable_deck(conn, fmt="Explorer")}
+    assert ranked["MultiSignal"]["score"] == pytest.approx(1.7)   # 1.0 + avg(0.4, 1.0)
+    assert ranked["SingleSignal"]["score"] == pytest.approx(1.7)  # 1.0 + 0.7, same magnitude
+
+
+def test_best_buildable_normalizes_meta_share_within_the_average(conn):
+    _store(conn, "TopMeta", "Timeless", best_of=1, meta_share=0.10, text="Deck\n4 Island (FDN) 270\n")
+    _store(conn, "FringeMeta", "Timeless", best_of=1, meta_share=0.02, text="Deck\n4 Island (FDN) 270\n")
+    ranked = {r["name"]: r for r in deck_analysis.best_buildable_deck(conn, fmt="Timeless")}
+    assert ranked["TopMeta"]["score"] == pytest.approx(2.0)    # 1.0 + (0.10 / 0.10)
+    assert ranked["FringeMeta"]["score"] == pytest.approx(1.2)  # 1.0 + (0.02 / 0.10)
+
+
 def test_best_buildable_includes_source(conn):
     ranked = {r["name"]: r for r in deck_analysis.best_buildable_deck(conn)}
     assert ranked["Aggro"]["source"] == "text"
