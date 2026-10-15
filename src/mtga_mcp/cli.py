@@ -18,6 +18,7 @@ from . import (
     ingest_export,
     ingest_scryfall,
     match_capture,
+    mydecks,
     paths,
 )
 
@@ -286,6 +287,18 @@ def _cmd_deck_bulk_import(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_deck_import_mine(args: argparse.Namespace) -> int:
+    conn = db.connect()
+    try:
+        res = mydecks.import_my_decks(conn, name_filter=args.filter)
+    finally:
+        conn.close()
+    print(f"import-mine: {res.imported} imported, {res.skipped} already present")
+    for name, bad_ids in res.unresolved_cards.items():
+        print(f"  {name}: {len(bad_ids)} card id(s) not in the catalog: {bad_ids}")
+    return 0
+
+
 def _cmd_deck_list(_args: argparse.Namespace) -> int:
     conn = db.connect_readonly()
     try:
@@ -480,6 +493,12 @@ def _add_deck_commands(sub) -> None:
                        help="1 or 3. AetherHub (both modes): selects its Bo1/Traditional "
                             "listing. Moxfield: just tags imported decks (otherwise unknown)")
     bulk.set_defaults(func=_cmd_deck_bulk_import)
+
+    mine = dsub.add_parser(
+        "import-mine",
+        help="Import every deck you've built in Arena, straight from Player.log")
+    mine.add_argument("--filter", help="Only decks whose name contains this (case-insensitive)")
+    mine.set_defaults(func=_cmd_deck_import_mine)
 
     gap = dsub.add_parser("gap", help="Wildcards/cards needed to build a deck")
     gap.add_argument("deck", help="Deck id or name")

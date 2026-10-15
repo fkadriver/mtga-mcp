@@ -51,6 +51,7 @@ _menu() {
     echo "=========================================="
     echo "  [w] Deck wizard — best deck you can build now"
     echo "  [b] Bulk-import meta decks (Moxfield / AetherHub)"
+    echo "  [m] Import all your own decks (from Player.log)"
     echo "  [d] List stored decks"
     echo "  [g] Deck gap — cards/wildcards missing for a deck"
     echo "  [p] Craft priority — best cards to craft"
@@ -91,6 +92,7 @@ _menu() {
             mtga-mcp "${args[@]}"
             _menu
             ;;
+        m|M) mtga-mcp deck import-mine; _menu ;;
         d|D) mtga-mcp deck list; _menu ;;
         g|G)
             name=$(_prompt "  Deck id or name: " "")

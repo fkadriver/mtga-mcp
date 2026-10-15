@@ -233,6 +233,23 @@ archetype from AetherHub's metagame *overview* page, tagged with that archetype'
 relative to the strongest `meta_share` in the pool before being averaged in alongside
 `win_rate`/`tier` — see above). It has no win-rate data of its own, though.
 
+### Importing your own decks
+
+```bash
+uv run mtga-mcp deck import-mine                  # every deck you've ever built in Arena
+uv run mtga-mcp deck import-mine --filter "demon"  # just the ones matching a name
+```
+
+The client periodically logs its full deck cache to `Player.log` in two matching pieces:
+`DeckSummaries` (name + format per deck) and `DecksInternal` (each deck's actual card list,
+keyed by MTGA's own card id — our `cards.grp_id`). `deck import-mine` joins the two, so every
+deck resolves by an exact id lookup rather than name-matching, and needs no fetch of any
+kind. Already-imported decks (by a synthetic `source_url`) are skipped on repeat runs.
+
+This is also what makes **local win rate** (see above) actually land on a deck: once a deck
+you've played is imported this way under its real Arena name, `mtga-mcp capture`'s tracked
+match results join onto it automatically.
+
 Either way, already-imported decks (matched by source URL) are skipped on repeat runs, so
 it's safe to re-run periodically to pick up newly posted decks.
 
