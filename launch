@@ -74,7 +74,7 @@ _menu() {
         w|W) mtga-mcp deck wizard; _menu ;;
         b|B)
             fmt=$(_prompt "  Format (e.g. Standard; Enter = any): " "")
-            count=$(_prompt "  How many decks? [10]: " "10")
+            count=$(_prompt "  How many decks? [25]: " "25")
             sort=$(_prompt "  Sort by updated/views/likes/created [updated]: " "updated")
             if [ -n "$fmt" ]; then
                 mtga-mcp deck bulk-import --format "$fmt" --count "$count" --sort "$sort"

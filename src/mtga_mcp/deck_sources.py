@@ -125,7 +125,7 @@ def _from_moxfield(url: str) -> FetchedDeck:
 _MOXFIELD_SORTS = {"updated", "views", "likes", "created"}
 
 
-def search_moxfield(fmt: str | None, *, count: int = 10, sort: str = "updated") -> list[FetchedDeck]:
+def search_moxfield(fmt: str | None, *, count: int = 25, sort: str = "updated") -> list[FetchedDeck]:
     """Top N public Moxfield decks for a format, ranked by ``sort`` (views/likes/updated/created).
 
     One search call lists candidates (name/id only), then each is fetched individually via
@@ -134,7 +134,7 @@ def search_moxfield(fmt: str | None, *, count: int = 10, sort: str = "updated") 
     """
     if sort not in _MOXFIELD_SORTS:
         raise ValueError(f"Unknown sort {sort!r}. Choose from: {', '.join(sorted(_MOXFIELD_SORTS))}")
-    count = max(1, min(count, 50))
+    count = max(1, min(count, 100))  # 100 is search-sfw's own page-size ceiling
     params = {"pageSize": count, "pageNumber": 1, "sortType": sort, "sortDirection": "descending"}
     if fmt:
         params["fmt"] = fmt.lower().replace(" ", "")

@@ -451,7 +451,7 @@ def _add_deck_commands(sub) -> None:
     bulk.add_argument("--source", choices=("moxfield",), default="moxfield",
                        help="Deck list source (only moxfield for now)")
     bulk.add_argument("--format", help="Format to search, e.g. Standard/Historic/Alchemy")
-    bulk.add_argument("--count", type=int, default=10, help="How many decks to pull (max 50)")
+    bulk.add_argument("--count", type=int, default=25, help="How many decks to pull (max 100)")
     bulk.add_argument("--sort", choices=("updated", "views", "likes", "created"), default="updated",
                        help="Rank by recency/views/likes/creation (default: updated)")
     bulk.add_argument("--best-of", type=int, choices=(1, 3), dest="best_of",
