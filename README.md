@@ -185,14 +185,15 @@ The **north-star** query — *"given my cards and the current meta, what's the b
 deck I could build?"* — is `deck best`, which scores each deck as
 `buildability + strength_bonus`. `buildability = 1 / (1 + wildcards_needed)`, so an
 already-buildable deck scores at least 1.0 and always outranks one that isn't, regardless of
-strength. `strength_bonus` *averages* whichever of `win_rate` / `meta_share` / `tier` the
-deck actually has (each rescaled onto a comparable 0..1 scale first — `meta_share` relative
-to the strongest `meta_share` in the same format/best-of pool, `tier` via a fixed weight
-table) — averaged, not summed, so a deck with three known signals doesn't automatically
-outrank one with a single strong signal. A deck with none of them gets 0 (no bonus, not a
-penalty for data nobody tracked). Set any of them with `--win-rate`/`--meta-share`/`--tier`
-on `deck import`, or pull `win_rate` automatically via `deck bulk-import --source aetherhub`
-and `meta_share` via `--source aetherhub-meta` (see below).
+strength. `strength_bonus` *averages* whichever of `win_rate` / `meta_share` / `tier` / your
+own tracked **local win rate** the deck actually has (each rescaled onto a comparable 0..1
+scale first — `meta_share` relative to the strongest `meta_share` in the same format/best-of
+pool, `tier` via a fixed weight table) — averaged, not summed, so a deck with several known
+signals doesn't automatically outrank one with a single strong signal. A deck with none of
+them gets 0 (no bonus, not a penalty for data nobody tracked). Set any of them with
+`--win-rate`/`--meta-share`/`--tier` on `deck import`, pull `win_rate` automatically via
+`deck bulk-import --source aetherhub`, `meta_share` via `--source aetherhub-meta`, or your
+*local win rate* by just playing games with `mtga-mcp capture` running (see below).
 
 Decks containing cards not legal in their format (rotated or banned, per the Scryfall
 legalities) are excluded by default — a "best deck" you can't actually play isn't an answer.
@@ -251,6 +252,13 @@ release.
 started running* — there's no full historical collection to reconcile against, since modern
 clients don't log one. A card you owned before capture ran (and haven't been granted again
 since) won't show up.
+
+`capture` also archives your own completed matches into `match_history`: win/loss plus which
+deck you queued with, parsed off `matchGameRoomStateChangedEvent` (deduped by `matchId`). The
+deck name comes from the `EventSetDeckV3` request that queued the match, joined against
+stored decks by name (case-insensitive) — so your tracked win rate only feeds `deck best`'s
+ranking (as `local_win_rate`, see above) once you've `deck import`ed that exact deck under
+the same name you gave it in Arena.
 
 ```bash
 uv run mtga-mcp capture       # skips instantly if the logs haven't changed since last run

@@ -196,17 +196,33 @@ def _illegal_cards(conn: sqlite3.Connection, deck_id: int, fmt: str | None) -> l
     ]
 
 
-def _strength_bonus(row: sqlite3.Row, max_meta_share: float | None) -> float:
+def _local_win_rates(conn: sqlite3.Connection) -> dict[str, float]:
+    """deck_name.lower() -> your own tracked win rate (wins/total), from `match_history`
+    (see match_capture.py). No sample-size floor -- with only a handful of games this is
+    noisy, but it's still a real signal you don't get from any imported source."""
+    rows = conn.execute(
+        "SELECT LOWER(deck_name) AS name, SUM(won) AS wins, COUNT(*) AS total "
+        "FROM match_history WHERE deck_name IS NOT NULL GROUP BY LOWER(deck_name)"
+    ).fetchall()
+    return {r["name"]: r["wins"] / r["total"] for r in rows if r["total"]}
+
+
+def _strength_bonus(
+    row: sqlite3.Row, max_meta_share: float | None, local_win_rates: dict[str, float]
+) -> float:
     """Average of whichever strength signals this deck actually has (``win_rate``,
-    ``meta_share``, ``tier``), each rescaled onto a comparable 0..1 "1.0 = great deck"
-    footing first, then averaged -- not summed, so a deck with three known signals doesn't
-    automatically outscore one with a single strong signal. A deck with none of them gets
-    0 (no bonus, not a penalty for data nobody tracked).
+    ``meta_share``, ``tier``, your own tracked local win rate), each rescaled onto a
+    comparable 0..1 "1.0 = great deck" footing first, then averaged -- not summed, so a deck
+    with several known signals doesn't automatically outscore one with a single strong
+    signal. A deck with none of them gets 0 (no bonus, not a penalty for data nobody tracked).
 
     ``meta_share`` is a literal fraction of the *whole* metagame -- even a dominant archetype
     is usually 5-15%, not 100%, so it's rescaled relative to the strongest ``meta_share``
     actually present in this fmt/best_of pool (``max_meta_share``) before being averaged in
-    alongside ``win_rate``/``tier``, which are already on that scale.
+    alongside ``win_rate``/``tier``, which are already on that scale. The local win rate joins
+    by deck name (case-insensitive) against `match_history` -- there's no real foreign key
+    between an Arena deck and a stored `decks` row, so it only lines up when you've named
+    your in-game deck the same as something you imported.
     """
     signals: list[float] = []
     if row["win_rate"] is not None:
@@ -215,6 +231,9 @@ def _strength_bonus(row: sqlite3.Row, max_meta_share: float | None) -> float:
         signals.append(max(0.0, min(1.0, float(row["meta_share"]) / max_meta_share)))
     if row["tier"]:
         signals.append(_TIER_WEIGHT.get(str(row["tier"]).strip().lower(), 0.5))
+    local = local_win_rates.get(str(row["name"]).strip().lower())
+    if local is not None:
+        signals.append(local)
     return sum(signals) / len(signals) if signals else 0.0
 
 
@@ -230,8 +249,9 @@ def best_buildable_deck(
     'given my cards and the meta, what's the best Bo1/Bo3 deck I could build?'
 
     ``score = buildability + strength_bonus``, where ``strength_bonus`` averages whichever of
-    ``win_rate``/``meta_share``/``tier`` the deck has (see ``_strength_bonus``) -- 0 when none
-    are known, so it's a bonus on top of buildability, not a penalty. ``buildability =
+    ``win_rate``/``meta_share``/``tier``/your tracked local win rate the deck has (see
+    ``_strength_bonus``) -- 0 when none are known, so it's a bonus on top of buildability,
+    not a penalty. ``buildability =
     1 / (1 + wildcards_needed)``, so an already-buildable deck scores at least 1.0 and always
     outranks one that isn't, regardless of strength.
 
@@ -244,6 +264,7 @@ def best_buildable_deck(
     max_meta_share = max(
         (d["meta_share"] for d in deck_rows if d["meta_share"] is not None), default=None
     )
+    local_win_rates = _local_win_rates(conn)
     results: list[dict] = []
     for d in deck_rows:
         illegal = _illegal_cards(conn, d["id"], d["format"])
@@ -261,7 +282,7 @@ def best_buildable_deck(
             and all(need <= owned_wc.get(r, 0) for r, need in gap["wildcards_needed"].items())
         )
         buildability = 1.0 / (1.0 + total_wc)
-        bonus = _strength_bonus(d, max_meta_share)
+        bonus = _strength_bonus(d, max_meta_share, local_win_rates)
         results.append({
             "deck_id": d["id"],
             "name": d["name"],
@@ -271,6 +292,7 @@ def best_buildable_deck(
             "tier": d["tier"],
             "meta_share": d["meta_share"],
             "win_rate": d["win_rate"],
+            "local_win_rate": local_win_rates.get(d["name"].strip().lower()),
             "wildcards_needed_total": total_wc,
             "wildcards_needed": gap["wildcards_needed"],
             "buildable_now": gap["buildable"],

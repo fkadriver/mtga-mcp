@@ -145,6 +145,24 @@ def test_best_buildable_averages_multiple_known_signals(conn):
     assert ranked["SingleSignal"]["score"] == pytest.approx(1.7)  # 1.0 + 0.7, same magnitude
 
 
+def test_best_buildable_folds_in_local_win_rate_by_deck_name(conn):
+    # No win_rate/meta_share/tier on this deck -- only a tracked local win rate, joined by
+    # name (case-insensitive) against match_history.
+    _store(conn, "Black Demon", "Explorer", best_of=1, text="Deck\n4 Island (FDN) 270\n")
+    conn.executemany(
+        "INSERT INTO match_history(match_id, deck_name, format, won, played_at) "
+        "VALUES (?,?,?,?,?)",
+        [
+            ("m1", "black demon", "Standard", 1, "2026-10-15T00:00:00+00:00"),
+            ("m2", "black demon", "Standard", 0, "2026-10-15T00:01:00+00:00"),
+            ("m3", "black demon", "Standard", 1, "2026-10-15T00:02:00+00:00"),
+        ],
+    )
+    ranked = {r["name"]: r for r in deck_analysis.best_buildable_deck(conn, fmt="Explorer")}
+    assert ranked["Black Demon"]["local_win_rate"] == pytest.approx(2 / 3)
+    assert ranked["Black Demon"]["score"] == round(1.0 + 2 / 3, 4)  # buildability 1.0 + bonus
+
+
 def test_best_buildable_normalizes_meta_share_within_the_average(conn):
     _store(conn, "TopMeta", "Timeless", best_of=1, meta_share=0.10, text="Deck\n4 Island (FDN) 270\n")
     _store(conn, "FringeMeta", "Timeless", best_of=1, meta_share=0.02, text="Deck\n4 Island (FDN) 270\n")

@@ -17,6 +17,7 @@ from . import (
     ingest_collection,
     ingest_export,
     ingest_scryfall,
+    match_capture,
     paths,
 )
 
@@ -186,17 +187,21 @@ def _cmd_capture(args: argparse.Namespace) -> int:
     conn = db.connect()
     try:
         res = capture_mod.capture(conn, force=args.force)
+        match_res = match_capture.capture_matches(conn, force=args.force)
     finally:
         conn.close()
     if res.skipped:
         print("capture: logs unchanged since last run — skipped (no parsing).")
-        return 0
-    print(f"capture: +{res.new_raw} new InventoryInfo payloads ({res.total_raw} archived total)")
-    if res.snapshot:
-        print(f"         wildcards/currency: {res.snapshot}")
-    if res.changes_seen:
-        print(f"         {res.changes_seen} card copies applied to `collection` "
-              f"(from GrantedCards deltas)")
+    else:
+        print(f"capture: +{res.new_raw} new InventoryInfo payloads ({res.total_raw} archived total)")
+        if res.snapshot:
+            print(f"         wildcards/currency: {res.snapshot}")
+        if res.changes_seen:
+            print(f"         {res.changes_seen} card copies applied to `collection` "
+                  f"(from GrantedCards deltas)")
+    if not match_res.skipped and match_res.new_matches:
+        print(f"         +{match_res.new_matches} new match result(s) "
+              f"({match_res.total_matches} archived total)")
     return 0
 
 
