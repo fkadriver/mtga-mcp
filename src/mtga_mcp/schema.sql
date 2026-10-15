@@ -27,6 +27,10 @@ CREATE TABLE IF NOT EXISTS cards (
 
 CREATE INDEX IF NOT EXISTS idx_cards_name ON cards(name);
 CREATE INDEX IF NOT EXISTS idx_cards_set ON cards(set_code);
+-- resolve_card (decklist.py) and anchors.resolve_card both look up by `name = ? COLLATE
+-- NOCASE`; a binary-collation index can't serve that, forcing a full table scan on every
+-- card resolved. This index matches the comparison's collation so it actually gets used.
+CREATE INDEX IF NOT EXISTS idx_cards_name_nocase ON cards(name COLLATE NOCASE);
 
 -- Owned quantities, keyed by MTGA GrpId. Either from Player.log GrantedCards deltas
 -- (capture) or replaced wholesale by a full memory-scanner export (ingest_export).
@@ -103,4 +107,17 @@ CREATE TABLE IF NOT EXISTS inventory_history (
     gold        INTEGER,
     gems        INTEGER,
     vault       INTEGER
+);
+
+-- Your own completed-match results, parsed from Player.log's matchGameRoomStateChangedEvent
+-- (see match_capture.py). deck_name/format come from the EventSetDeckV3 request that queued
+-- the match, joined against `decks.name` (case-insensitive) at query time -- there's no
+-- direct foreign key, since an Arena deck and a stored `decks` row are different entities
+-- that only line up when you've named your in-game deck the same as something you imported.
+CREATE TABLE IF NOT EXISTS match_history (
+    match_id   TEXT PRIMARY KEY,
+    deck_name  TEXT,              -- NULL if we couldn't find the queuing EventSetDeckV3
+    format     TEXT,
+    won        INTEGER NOT NULL,  -- 1/0
+    played_at  TEXT NOT NULL
 );
