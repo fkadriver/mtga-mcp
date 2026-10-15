@@ -60,6 +60,24 @@ def test_gap_buildable_deck(conn):
     assert gap["wildcards_needed"] == {}
 
 
+def test_gap_all_cards_lists_everything_with_rarity_and_missing_tag(conn):
+    gap = deck_analysis.deck_gap(conn, "Control")
+    by_name = {c["name"]: c for c in gap["all_cards"]}
+    assert by_name["Counterspell"]["rarity"] == "uncommon"
+    assert by_name["Counterspell"]["missing"] == 4
+    # Fully owned (2 needed, 2 owned) still appears, just with missing: 0.
+    assert by_name["Sheoldred, the Apocalypse"]["missing"] == 0
+    assert by_name["Sheoldred, the Apocalypse"]["owned"] == 2
+
+
+def test_gap_all_cards_includes_basics_as_never_missing(conn):
+    gap = deck_analysis.deck_gap(conn, "Aggro")
+    island = next(c for c in gap["all_cards"] if c["name"] == "Island")
+    assert island["rarity"] == "basic"
+    assert island["missing"] == 0
+    assert island["owned"] is None  # not wildcard-constrained; capped owned count is meaningless
+
+
 def test_gap_missing_cards_and_wildcards(conn):
     gap = deck_analysis.deck_gap(conn, "Control")
     names = {m["name"]: m for m in gap["missing_cards"]}

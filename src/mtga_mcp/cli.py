@@ -392,10 +392,11 @@ def _render_gap(gap: dict) -> None:
     else:
         print(f"  missing {gap['total_missing_copies']} copies; "
               f"wildcards needed: {_fmt_wildcards(gap['wildcards_needed'])}")
-        for m in gap["missing_cards"]:
-            print(f"    {m['missing']}x {m['name']} ({m['rarity']})")
-        if gap["unresolved"]:
-            print(f"  unresolved (not in catalog): {', '.join(gap['unresolved'])}")
+    for c in gap["all_cards"]:
+        tag = f"  [MISSING {c['missing']}]" if c["missing"] else ""
+        print(f"    {c['needed']}x {c['name']} ({c['rarity']}){tag}")
+    if gap["unresolved"]:
+        print(f"  unresolved (not in catalog): {', '.join(gap['unresolved'])}")
     owned = gap["wildcards_owned"]
     print(f"  wildcards owned: {_fmt_wildcards(owned)}")
 

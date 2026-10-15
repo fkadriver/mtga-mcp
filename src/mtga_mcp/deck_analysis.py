@@ -61,12 +61,18 @@ def _wildcards_owned(conn: sqlite3.Connection) -> dict[str, int]:
     }
 
 
-def _deck_missing(conn: sqlite3.Connection, deck_id: int) -> tuple[list[dict], list[str]]:
-    """Per-card shortfall for a deck. Returns (missing_cards, unresolved_names).
+_RARITY_DISPLAY_ORDER = {"mythic": 0, "rare": 1, "uncommon": 2, "common": 3, "basic": 4}
 
-    Each missing card: {name, rarity, needed, owned, missing}. Basics are excluded (free).
+
+def _deck_detail(conn: sqlite3.Connection, deck_id: int) -> tuple[list[dict], list[str]]:
+    """Every resolved card in a deck, basics included. Returns (cards, unresolved_names).
+
+    Each card: {name, rarity, needed, owned, missing, is_basic}. Basics are always
+    ``missing: 0`` (free, no wildcard cost) and ``owned: None`` -- `resolve_card`'s owned
+    count is capped at a 4-copy playset, which would otherwise show a confusing "owned 4"
+    on a basic you can run 20 of.
     """
-    missing: list[dict] = []
+    cards: list[dict] = []
     unresolved: list[str] = []
     for name, set_code, total_qty in _aggregated_cards(conn, deck_id):
         info = resolve_card(conn, name, set_code)
@@ -74,14 +80,31 @@ def _deck_missing(conn: sqlite3.Connection, deck_id: int) -> tuple[list[dict], l
             unresolved.append(name)
             continue
         if info.is_basic:
+            cards.append({
+                "name": name, "rarity": info.rarity, "needed": total_qty,
+                "owned": None, "missing": 0, "is_basic": True,
+            })
             continue
         needed = min(PLAYSET, total_qty)
         short = max(0, needed - info.owned)
-        if short > 0:
-            missing.append({
-                "name": name, "rarity": info.rarity,
-                "needed": needed, "owned": info.owned, "missing": short,
-            })
+        cards.append({
+            "name": name, "rarity": info.rarity, "needed": needed,
+            "owned": info.owned, "missing": short, "is_basic": False,
+        })
+    cards.sort(key=lambda c: (_RARITY_DISPLAY_ORDER.get(c["rarity"], 2), c["name"]))
+    return cards, unresolved
+
+
+def _deck_missing(conn: sqlite3.Connection, deck_id: int) -> tuple[list[dict], list[str]]:
+    """Per-card shortfall for a deck. Returns (missing_cards, unresolved_names).
+
+    Each missing card: {name, rarity, needed, owned, missing}. Basics are excluded (free).
+    """
+    cards, unresolved = _deck_detail(conn, deck_id)
+    missing = [
+        {k: c[k] for k in ("name", "rarity", "needed", "owned", "missing")}
+        for c in cards if not c["is_basic"] and c["missing"] > 0
+    ]
     return missing, unresolved
 
 
@@ -90,7 +113,11 @@ def deck_gap(conn: sqlite3.Connection, deck: int | str) -> dict:
     row = _resolve_deck(conn, deck)
     if row is None:
         raise ValueError(f"No deck matching {deck!r}")
-    missing, unresolved = _deck_missing(conn, row["id"])
+    all_cards, unresolved = _deck_detail(conn, row["id"])
+    missing = [
+        {k: c[k] for k in ("name", "rarity", "needed", "owned", "missing")}
+        for c in all_cards if not c["is_basic"] and c["missing"] > 0
+    ]
 
     wc_needed: dict[str, int] = defaultdict(int)
     for m in missing:
@@ -103,6 +130,7 @@ def deck_gap(conn: sqlite3.Connection, deck: int | str) -> dict:
         "name": row["name"],
         "format": row["format"],
         "best_of": row["best_of"],
+        "all_cards": all_cards,
         "missing_cards": sorted(missing, key=lambda m: (-m["missing"], m["name"])),
         "wildcards_needed": {r: wc_needed[r] for r in _WILDCARD_RARITIES if wc_needed[r]},
         "wildcards_owned": _wildcards_owned(conn),
