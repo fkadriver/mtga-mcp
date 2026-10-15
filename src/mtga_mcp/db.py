@@ -42,6 +42,15 @@ def _migrate_inventory_raw(conn: sqlite3.Connection) -> None:
         conn.execute("DROP TABLE inventory_raw_old")
 
 
+def _migrate_decks_dup_of(conn: sqlite3.Connection) -> None:
+    """Add `decks.dup_of` (see deck_dedupe.py) to a pre-existing `decks` table that predates
+    it -- CREATE TABLE IF NOT EXISTS in schema.sql only applies to brand-new databases."""
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(decks)")}
+    if cols and "dup_of" not in cols:
+        conn.execute("ALTER TABLE decks ADD COLUMN dup_of INTEGER REFERENCES decks(id)")
+        conn.commit()
+
+
 def connect(db_path: Path | None = None) -> sqlite3.Connection:
     """Open (creating if needed) our database and ensure the schema exists."""
     path = db_path or paths.DB_PATH
@@ -50,6 +59,7 @@ def connect(db_path: Path | None = None) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.executescript(_schema_sql())
     _migrate_inventory_raw(conn)
+    _migrate_decks_dup_of(conn)
     return conn
 
 

@@ -6,7 +6,7 @@ import sqlite3
 
 import pytest
 
-from mtga_mcp import db, deck_analysis, decklist
+from mtga_mcp import db, deck_analysis, deck_dedupe, decklist
 
 
 @pytest.fixture
@@ -174,6 +174,20 @@ def test_best_buildable_normalizes_meta_share_within_the_average(conn):
 def test_best_buildable_includes_source(conn):
     ranked = {r["name"]: r for r in deck_analysis.best_buildable_deck(conn)}
     assert ranked["Aggro"]["source"] == "text"
+
+
+def test_best_buildable_collapses_near_duplicates(conn):
+    # Same mainboard, pulled under two different names/sources -- the weaker-scoring one
+    # (no win_rate) should disappear from the list, folded into the stronger one.
+    _store(conn, "Mono Red (Moxfield)", "Modern", best_of=1,
+           text="Deck\n4 Lightning Bolt (STA) 42\n4 Island (FDN) 270\n")
+    _store(conn, "Mono Red (AetherHub)", "Modern", best_of=1, win_rate=0.6,
+           text="Deck\n4 Lightning Bolt (STA) 42\n4 Island (FDN) 270\n")
+    deck_dedupe.backfill(conn)
+    ranked = [r for r in deck_analysis.best_buildable_deck(conn, fmt="Modern")]
+    assert len(ranked) == 1
+    assert ranked[0]["name"] == "Mono Red (AetherHub)"  # higher score (win_rate bonus) wins
+    assert ranked[0]["variants"] == 2
 
 
 def test_best_buildable_filters_best_of(conn):

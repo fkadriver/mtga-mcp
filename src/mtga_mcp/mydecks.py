@@ -30,6 +30,7 @@ class MyDecksResult:
     imported: int
     skipped: int
     unresolved_cards: dict[str, list[int]]  # deck name -> cardIds with no catalog match
+    imported_ids: list[int]
 
 
 def _match_array(text: str, open_idx: int) -> str | None:
@@ -102,6 +103,7 @@ def import_my_decks(conn: sqlite3.Connection, *, name_filter: str | None = None)
 
     imported = skipped = 0
     unresolved: dict[str, list[int]] = {}
+    imported_ids: list[int] = []
     for summary in summaries:
         deck_id = summary.get("DeckIdInternal")
         name = summary.get("Name")
@@ -138,10 +140,13 @@ def import_my_decks(conn: sqlite3.Connection, *, name_filter: str | None = None)
         if bad_ids:
             unresolved[name] = bad_ids
 
-        decklist.store_deck(
+        stored = decklist.store_deck(
             conn, name=name, fmt=_deck_format(summary), cards=deck_cards,
             source="player_log", source_url=source_url,
         )
         imported += 1
+        imported_ids.append(stored.deck_id)
 
-    return MyDecksResult(imported=imported, skipped=skipped, unresolved_cards=unresolved)
+    return MyDecksResult(
+        imported=imported, skipped=skipped, unresolved_cards=unresolved, imported_ids=imported_ids
+    )

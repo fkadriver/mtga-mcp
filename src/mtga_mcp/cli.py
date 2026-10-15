@@ -11,6 +11,7 @@ from . import (
     capture as capture_mod,
     db,
     deck_analysis,
+    deck_dedupe,
     deck_sources,
     decklist,
     ingest_catalog,
@@ -279,8 +280,11 @@ def _cmd_deck_bulk_import(args: argparse.Namespace) -> int:
                 best_of=args.best_of if args.best_of is not None else fetched.best_of,
                 meta_share=fetched.meta_share, win_rate=fetched.win_rate,
             )
+            dup_of = deck_dedupe.link_duplicate(conn, stored.deck_id)
             imported += 1
-            print(f"  imported #{stored.deck_id}: {fetched.name} ({stored.resolved} cards resolved)")
+            dup_note = f" (near-duplicate of #{dup_of})" if dup_of else ""
+            print(f"  imported #{stored.deck_id}: {fetched.name} "
+                  f"({stored.resolved} cards resolved){dup_note}")
     finally:
         conn.close()
     print(f"bulk-import: {imported} imported, {skipped} already present")
@@ -291,6 +295,8 @@ def _cmd_deck_import_mine(args: argparse.Namespace) -> int:
     conn = db.connect()
     try:
         res = mydecks.import_my_decks(conn, name_filter=args.filter)
+        for deck_id in res.imported_ids:
+            deck_dedupe.link_duplicate(conn, deck_id)
     finally:
         conn.close()
     print(f"import-mine: {res.imported} imported, {res.skipped} already present")
@@ -457,6 +463,16 @@ def _cmd_deck_delete(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_deck_dedupe(_args: argparse.Namespace) -> int:
+    conn = db.connect()
+    try:
+        linked = deck_dedupe.backfill(conn)
+    finally:
+        conn.close()
+    print(f"dedupe: {linked} deck(s) newly linked to a near-duplicate")
+    return 0
+
+
 def _add_deck_commands(sub) -> None:
     deck = sub.add_parser("deck", help="Import and analyze decklists")
     dsub = deck.add_subparsers(dest="deck_command", required=True)
@@ -527,6 +543,13 @@ def _add_deck_commands(sub) -> None:
     dele = dsub.add_parser("delete", help="Delete a stored deck")
     dele.add_argument("deck", help="Deck id or name")
     dele.set_defaults(func=_cmd_deck_delete)
+
+    dedupe = dsub.add_parser(
+        "dedupe",
+        help="Link near-duplicate decks (<=2 mainboard cards different) so `deck best` "
+             "shows one instead of all of them. New imports do this automatically; this is "
+             "a one-time backfill for decks imported before that.")
+    dedupe.set_defaults(func=_cmd_deck_dedupe)
 
 
 def build_parser() -> argparse.ArgumentParser:

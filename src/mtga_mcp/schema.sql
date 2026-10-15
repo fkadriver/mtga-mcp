@@ -63,7 +63,9 @@ CREATE TABLE IF NOT EXISTS decks (
     win_rate    REAL,             -- 0..1
     source      TEXT,             -- text / archidekt / moxfield / mtggoldfish
     source_url  TEXT,
-    imported_at TEXT NOT NULL
+    imported_at TEXT NOT NULL,
+    dup_of      INTEGER REFERENCES decks(id)  -- near-duplicate of this other deck, if any
+                                               -- (see deck_dedupe.py); never deleted/merged
 );
 
 -- Cards within a deck. grp_id is the resolved MTGA printing (NULL if the name could not

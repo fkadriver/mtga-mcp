@@ -201,6 +201,14 @@ Pass `--include-illegal` to keep them, flagged with `format_legal` and the offen
 `illegal_cards`. Formats without legality data (Alchemy/Timeless) are never excluded on those
 grounds.
 
+Pulling the same archetype from multiple sources means seeing it 5 times in a row in `deck
+best` isn't an answer either. Decks within 2 mainboard cards of each other (same format,
+basics/sideboard ignored) are treated as the same deck: `deck best`/`bo1`/`bo3` show only the
+single best-scoring one, with a `variants` count of how many it's standing in for. Rows are
+never merged or deleted — `deck list` still shows every one. `deck bulk-import` and `deck
+import-mine` link new near-duplicates automatically as they're imported; run `deck dedupe`
+once to backfill decks you already had before this existed.
+
 ### A note on meta-deck sources
 
 Most of the big meta sites (MTGGoldfish, Untapped, mtgdecks) actively block automated

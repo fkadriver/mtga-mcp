@@ -300,6 +300,26 @@ def best_buildable_deck(
             "format_legal": None if illegal is None else not illegal,
             "illegal_cards": illegal or [],
             "score": round(buildability + bonus, 4),
+            "_group": d["dup_of"] or d["id"],
         })
+    results = _collapse_duplicates(results)
     results.sort(key=lambda r: (-r["score"], r["wildcards_needed_total"]))
     return results
+
+
+def _collapse_duplicates(results: list[dict]) -> list[dict]:
+    """Within each near-duplicate cluster (see deck_dedupe.py), keep only the single
+    best-scoring deck -- the clutter this is for is seeing the same archetype 5 times in a
+    row from 5 sources, not losing track of the others, so each kept result gets a
+    ``variants`` count of how many near-duplicates (including itself) it stands in for."""
+    best_by_group: dict[int, dict] = {}
+    counts: dict[int, int] = {}
+    for r in results:
+        group = r.pop("_group")
+        counts[group] = counts.get(group, 0) + 1
+        current = best_by_group.get(group)
+        if current is None or r["score"] > current["score"]:
+            best_by_group[group] = r
+    for group, r in best_by_group.items():
+        r["variants"] = counts[group]
+    return list(best_by_group.values())
