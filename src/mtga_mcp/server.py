@@ -86,9 +86,10 @@ def query_sql(sql: str, limit: int = 200) -> list[dict[str, Any]]:
 @mcp.tool(description="Import a decklist and store it for buildability analysis. Provide "
                       "exactly one of `text` (pasted Arena/MTGO list) or `url` (Archidekt or "
                       "Moxfield). Optional meta metadata: best_of (1 or 3), tier, meta_share "
-                      "(0..1), win_rate (0..1) -- win_rate feeds the best_buildable_deck "
-                      "ranking directly (score = buildability + win_rate). Set "
-                      "allow_scrape=true to attempt an MTGGoldfish URL (unreliable). Returns "
+                      "(0..1), win_rate (0..1) -- whichever of these are set feed the "
+                      "best_buildable_deck ranking, averaged together as a bonus on top of "
+                      "buildability. Set allow_scrape=true to attempt an MTGGoldfish URL "
+                      "(unreliable). Returns "
                       "the deck id and any card names that couldn't be matched.")
 def import_deck(
     text: str | None = None,
@@ -150,8 +151,9 @@ def craft_priority(format: str | None = None) -> list[dict[str, Any]]:
 
 
 @mcp.tool(description="The best deck you could build given your cards and the meta. Ranks "
-                      "stored decks by score = buildability + win_rate (win_rate 0 when "
-                      "unknown, so it's a bonus on top of buildability, not a penalty). "
+                      "stored decks by score = buildability + strength_bonus, where "
+                      "strength_bonus averages whichever of win_rate/meta_share/tier the "
+                      "deck has (0 when none are known, so it's a bonus, never a penalty). "
                       "Filter by best_of (1 or 3) and format; max_wildcards hides decks "
                       "needing more than that many wildcards.")
 def best_buildable_deck(
