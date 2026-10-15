@@ -116,6 +116,19 @@ def test_best_buildable_ranks_by_strength_times_buildability(conn):
     assert ranked[0]["buildable_now"] is True
 
 
+def test_strength_normalizes_meta_share_against_the_pool_max(conn):
+    # All three fully buildable (basics only) -> score ordering reflects strength alone.
+    _store(conn, "TopMeta", "Pioneer", best_of=1, meta_share=0.10, text="Deck\n4 Island (FDN) 270\n")
+    _store(conn, "FringeMeta", "Pioneer", best_of=1, meta_share=0.02, text="Deck\n4 Island (FDN) 270\n")
+    _store(conn, "NoData", "Pioneer", best_of=1, text="Deck\n4 Island (FDN) 270\n")
+    ranked = {r["name"]: r for r in deck_analysis.best_buildable_deck(conn, fmt="Pioneer")}
+    # The strongest known archetype (0.10, the pool max) reaches full strength like an
+    # untagged deck -- it's not capped near zero just because 10% is "small" in absolute terms,
+    # which is what raw meta_share-as-strength would otherwise do.
+    assert ranked["TopMeta"]["score"] == ranked["NoData"]["score"] == 1.0
+    assert ranked["FringeMeta"]["score"] == pytest.approx(0.2)  # 0.02 / 0.10, scaled down
+
+
 def test_best_buildable_filters_best_of(conn):
     bo3 = [r["name"] for r in deck_analysis.best_buildable_deck(conn, best_of=3)]
     assert bo3 == ["Control"]
