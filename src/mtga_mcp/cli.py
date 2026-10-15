@@ -243,7 +243,11 @@ def _cmd_deck_import(args: argparse.Namespace) -> int:
 
 
 def _cmd_deck_bulk_import(args: argparse.Namespace) -> int:
-    if args.source == "aetherhub":
+    if args.source == "aetherhub-meta":
+        fetched_list = deck_sources.search_aetherhub_meta(
+            args.format, best_of=args.best_of, count=args.count
+        )
+    elif args.source == "aetherhub":
         fetched_list = deck_sources.search_aetherhub(
             args.format, best_of=args.best_of, count=args.count
         )
@@ -266,6 +270,7 @@ def _cmd_deck_bulk_import(args: argparse.Namespace) -> int:
                 conn, name=fetched.name, fmt=args.format or fetched.fmt, cards=fetched.cards,
                 source=fetched.source, source_url=fetched.source_url,
                 best_of=args.best_of if args.best_of is not None else fetched.best_of,
+                meta_share=fetched.meta_share,
             )
             imported += 1
             print(f"  imported #{stored.deck_id}: {fetched.name} ({stored.resolved} cards resolved)")
@@ -453,15 +458,18 @@ def _add_deck_commands(sub) -> None:
 
     bulk = dsub.add_parser(
         "bulk-import", help="Import the top N meta decks for a format from Moxfield or AetherHub")
-    bulk.add_argument("--source", choices=("moxfield", "aetherhub"), default="moxfield",
-                       help="Deck list source")
+    bulk.add_argument("--source", choices=("moxfield", "aetherhub", "aetherhub-meta"),
+                       default="moxfield",
+                       help="moxfield/aetherhub: many individual decks, no strength signal. "
+                            "aetherhub-meta: one representative deck per archetype, tagged "
+                            "with its real meta_share from AetherHub's metagame overview")
     bulk.add_argument("--format", help="Format to search, e.g. Standard/Historic/Alchemy")
     bulk.add_argument("--count", type=int, default=25, help="How many decks to pull (max 100)")
     bulk.add_argument("--sort", choices=("updated", "views", "likes", "created"), default="updated",
                        help="Moxfield only: rank by recency/views/likes/creation (default: updated)")
     bulk.add_argument("--best-of", type=int, choices=(1, 3), dest="best_of",
-                       help="1 or 3. AetherHub: selects its Bo1/Traditional listing. "
-                            "Moxfield: just tags imported decks (otherwise left unknown)")
+                       help="1 or 3. AetherHub (both modes): selects its Bo1/Traditional "
+                            "listing. Moxfield: just tags imported decks (otherwise unknown)")
     bulk.set_defaults(func=_cmd_deck_bulk_import)
 
     gap = dsub.add_parser("gap", help="Wildcards/cards needed to build a deck")

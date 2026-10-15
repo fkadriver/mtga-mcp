@@ -50,7 +50,7 @@ _menu() {
     echo "  mtga-mcp"
     echo "=========================================="
     echo "  [w] Deck wizard — best deck you can build now"
-    echo "  [b] Bulk-import meta decks (Moxfield)"
+    echo "  [b] Bulk-import meta decks (Moxfield / AetherHub)"
     echo "  [d] List stored decks"
     echo "  [g] Deck gap — cards/wildcards missing for a deck"
     echo "  [p] Craft priority — best cards to craft"
@@ -73,18 +73,21 @@ _menu() {
     case "$choice" in
         w|W) mtga-mcp deck wizard; _menu ;;
         b|B)
-            src=$(_prompt "  Source: moxfield/aetherhub [moxfield]: " "moxfield")
+            src=$(_prompt "  Source: moxfield/aetherhub/aetherhub-meta [moxfield]: " "moxfield")
             fmt=$(_prompt "  Format (e.g. Standard; Enter = any): " "")
             count=$(_prompt "  How many decks? [25]: " "25")
             args=(deck bulk-import --source "$src" --count "$count")
             if [ -n "$fmt" ]; then args+=(--format "$fmt"); fi
-            if [ "$src" = "aetherhub" ]; then
-                bo=$(_prompt "  Best-of 1 or 3 [1]: " "1")
-                args+=(--best-of "$bo")
-            else
-                sort=$(_prompt "  Sort by updated/views/likes/created [updated]: " "updated")
-                args+=(--sort "$sort")
-            fi
+            case "$src" in
+                aetherhub|aetherhub-meta)
+                    bo=$(_prompt "  Best-of 1 or 3 [1]: " "1")
+                    args+=(--best-of "$bo")
+                    ;;
+                *)
+                    sort=$(_prompt "  Sort by updated/views/likes/created [updated]: " "updated")
+                    args+=(--sort "$sort")
+                    ;;
+            esac
             mtga-mcp "${args[@]}"
             _menu
             ;;

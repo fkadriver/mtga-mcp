@@ -40,6 +40,7 @@ class FetchedDeck:
     source: str
     source_url: str | None = None
     best_of: int | None = None
+    meta_share: float | None = None  # 0..1 fraction of the field, when the source reports one
     extra: dict = field(default_factory=dict)
 
 
@@ -210,6 +211,59 @@ def search_aetherhub(fmt: str | None, *, best_of: int | None = None, count: int 
             results.append(FetchedDeck(
                 name=name, fmt=fmt, cards=parse_decklist(resp.text), source="aetherhub",
                 source_url=f"https://aetherhub.com/Deck/{deck_id}", best_of=best_of,
+            ))
+        except (httpx.HTTPError, ValueError):
+            continue
+    return results
+
+
+# Matches one archetype tile on /Metagame/<slug>/: its name + the id of its one representative
+# decklist (same two-<tr> shape every tile shares -- see search_aetherhub_meta).
+_AETHERHUB_ARCHETYPE_ROW = re.compile(
+    r'data-color="[^"]*" data-title="(?P<name>[^"]+)" '
+    r"onclick=\"window\.location='/Metagame/[^/]+/Deck/[\w-]+-(?P<id>\d+)';\""
+)
+# Each tile's own "N.NN% of Metagame" figure, in the same document order as the rows above --
+# zipped together rather than matched in one combined regex, since the two spans live in
+# separate sibling <tr>s and that's more robust to minor markup drift than threading one regex
+# across both.
+_AETHERHUB_ARCHETYPE_SHARE = re.compile(r'percent-metagame">([\d.]+)% of Metagame')
+
+
+def search_aetherhub_meta(
+    fmt: str | None, *, best_of: int | None = None, count: int = 20
+) -> list[FetchedDeck]:
+    """Top N archetypes from aetherhub.com's metagame overview for a format, each tagged with
+    its real ``meta_share`` (the page's own "% of Metagame" figure, last-30-days by default) and
+    imported via its one representative decklist.
+
+    Unlike `search_aetherhub`'s per-deck listing (many individual decks, no strength signal at
+    all), this is the source to use when you want `deck best`'s ranking to reflect genuine meta
+    strength rather than just buildability.
+    """
+    slug = _aetherhub_slug(fmt, best_of)
+    resp = httpx.get(f"https://aetherhub.com/Metagame/{slug}/", headers=_HEADERS, timeout=30)
+    if resp.status_code == 404:
+        raise ValueError(
+            f"No aetherhub.com metagame overview for format {fmt!r} best_of={best_of!r} "
+            f"(tried slug {slug!r}). Known: Standard/Historic/Explorer/Alchemy/Timeless "
+            "(Bo1 or Bo3), Brawl, Historic Brawl, Limited."
+        )
+    resp.raise_for_status()
+    rows = _AETHERHUB_ARCHETYPE_ROW.findall(resp.text)
+    shares = _AETHERHUB_ARCHETYPE_SHARE.findall(resp.text)
+
+    results: list[FetchedDeck] = []
+    for (name, deck_id), share in list(zip(rows, shares))[:count]:
+        try:
+            resp = httpx.get(
+                f"https://aetherhub.com/Deck/MtgoDeckExport/{deck_id}", headers=_HEADERS, timeout=30,
+            )
+            resp.raise_for_status()
+            results.append(FetchedDeck(
+                name=name, fmt=fmt, cards=parse_decklist(resp.text), source="aetherhub-meta",
+                source_url=f"https://aetherhub.com/Deck/{deck_id}", best_of=best_of,
+                meta_share=round(float(share) / 100, 4),
             ))
         except (httpx.HTTPError, ValueError):
             continue
