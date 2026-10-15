@@ -154,6 +154,68 @@ def search_moxfield(fmt: str | None, *, count: int = 25, sort: str = "updated") 
     return results
 
 
+# aetherhub.com's robots.txt places no restrictions at all (unlike the other meta sites),
+# and its listing pages are plain server-rendered HTML with a no-auth plain-text export
+# endpoint per deck -- so unlike `from_scrape` below, this isn't gated behind an opt-in flag.
+# Formats below get a Bo1/Bo3 split ("Standard-BO1" / "Traditional-Standard"); these three
+# don't (single game, no best-of).
+_AETHERHUB_SINGLE_SLUGS = {"brawl": "Brawl", "historicbrawl": "Historic-Brawl", "limited": "Limited"}
+_AETHERHUB_BO_FORMATS = {"standard", "historic", "explorer", "alchemy", "timeless"}
+_AETHERHUB_ROW = re.compile(r'/Metagame/[^"]+/Deck/[\w-]+-(?P<id>\d+)"><b>(?P<name>[^<]+)</b>')
+
+
+def _aetherhub_slug(fmt: str | None, best_of: int | None) -> str:
+    norm = (fmt or "standard").strip().lower().replace(" ", "")
+    if norm in _AETHERHUB_SINGLE_SLUGS:
+        return _AETHERHUB_SINGLE_SLUGS[norm]
+    base = norm.capitalize() if norm in _AETHERHUB_BO_FORMATS else (fmt or "Standard").strip().title()
+    return f"Traditional-{base}" if best_of == 3 else f"{base}-BO1"
+
+
+def search_aetherhub(fmt: str | None, *, best_of: int | None = None, count: int = 25) -> list[FetchedDeck]:
+    """Top N decks from aetherhub.com's metagame listing for a format (newest first).
+
+    Pages the listing (~75 rows/page) for (id, name) pairs, then fetches each deck's
+    plain-text export individually -- a failed individual fetch is skipped rather than
+    aborting the whole batch.
+    """
+    slug = _aetherhub_slug(fmt, best_of)
+    found: list[tuple[str, str]] = []
+    page = 1
+    while len(found) < count and page <= 20:
+        resp = httpx.get(
+            f"https://aetherhub.com/MTGA-Decks/{slug}/", params={"p": page},
+            headers=_HEADERS, timeout=30,
+        )
+        if resp.status_code == 404:
+            raise ValueError(
+                f"No aetherhub.com listing for format {fmt!r} best_of={best_of!r} "
+                f"(tried slug {slug!r}). Known: Standard/Historic/Explorer/Alchemy/Timeless "
+                "(Bo1 or Bo3), Brawl, Historic Brawl, Limited."
+            )
+        resp.raise_for_status()
+        rows = _AETHERHUB_ROW.findall(resp.text)
+        if not rows:
+            break
+        found.extend(rows)
+        page += 1
+
+    results: list[FetchedDeck] = []
+    for deck_id, name in found[:count]:
+        try:
+            resp = httpx.get(
+                f"https://aetherhub.com/Deck/MtgoDeckExport/{deck_id}", headers=_HEADERS, timeout=30,
+            )
+            resp.raise_for_status()
+            results.append(FetchedDeck(
+                name=name, fmt=fmt, cards=parse_decklist(resp.text), source="aetherhub",
+                source_url=f"https://aetherhub.com/Deck/{deck_id}", best_of=best_of,
+            ))
+        except (httpx.HTTPError, ValueError):
+            continue
+    return results
+
+
 def from_scrape(url: str, *, enable: bool = False) -> FetchedDeck:
     """Best-effort meta-site scraper (MTGGoldfish). Disabled unless `enable=True`.
 

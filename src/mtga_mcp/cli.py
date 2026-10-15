@@ -243,7 +243,12 @@ def _cmd_deck_import(args: argparse.Namespace) -> int:
 
 
 def _cmd_deck_bulk_import(args: argparse.Namespace) -> int:
-    fetched_list = deck_sources.search_moxfield(args.format, count=args.count, sort=args.sort)
+    if args.source == "aetherhub":
+        fetched_list = deck_sources.search_aetherhub(
+            args.format, best_of=args.best_of, count=args.count
+        )
+    else:
+        fetched_list = deck_sources.search_moxfield(args.format, count=args.count, sort=args.sort)
     if not fetched_list:
         print("No decks found for those filters.")
         return 0
@@ -447,15 +452,16 @@ def _add_deck_commands(sub) -> None:
     dsub.add_parser("list", help="List stored decks").set_defaults(func=_cmd_deck_list)
 
     bulk = dsub.add_parser(
-        "bulk-import", help="Import the top N meta decks for a format from Moxfield's public search")
-    bulk.add_argument("--source", choices=("moxfield",), default="moxfield",
-                       help="Deck list source (only moxfield for now)")
+        "bulk-import", help="Import the top N meta decks for a format from Moxfield or AetherHub")
+    bulk.add_argument("--source", choices=("moxfield", "aetherhub"), default="moxfield",
+                       help="Deck list source")
     bulk.add_argument("--format", help="Format to search, e.g. Standard/Historic/Alchemy")
     bulk.add_argument("--count", type=int, default=25, help="How many decks to pull (max 100)")
     bulk.add_argument("--sort", choices=("updated", "views", "likes", "created"), default="updated",
-                       help="Rank by recency/views/likes/creation (default: updated)")
+                       help="Moxfield only: rank by recency/views/likes/creation (default: updated)")
     bulk.add_argument("--best-of", type=int, choices=(1, 3), dest="best_of",
-                       help="Tag all imported decks as 1 or 3 (otherwise left unknown)")
+                       help="1 or 3. AetherHub: selects its Bo1/Traditional listing. "
+                            "Moxfield: just tags imported decks (otherwise left unknown)")
     bulk.set_defaults(func=_cmd_deck_bulk_import)
 
     gap = dsub.add_parser("gap", help="Wildcards/cards needed to build a deck")

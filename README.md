@@ -195,23 +195,29 @@ grounds.
 
 ### A note on meta-deck sources
 
-The big meta sites (MTGGoldfish, Untapped, AetherHub, mtgdecks) actively block automated
-access — Cloudflare, robots `ai-train=no`, blocked bot user-agents, and blocked export
-endpoints. So this tool imports decklists from **pasted text** and **deck-host public APIs**
-(Archidekt, Moxfield) instead. A best-effort MTGGoldfish scraper exists behind an explicit
-`--allow-scrape` flag but is brittle and may fail; pasting the Arena export (one click in your
-browser) is the reliable path.
+Most of the big meta sites (MTGGoldfish, Untapped, mtgdecks) actively block automated
+access — Cloudflare, robots `ai-train=no` (mtgdecks.net's robots.txt specifically disallows
+`anthropic-ai`/`ClaudeBot` and even a literal `MTGMeta-Scraper` entry), blocked bot
+user-agents, and blocked export endpoints. So this tool imports decklists from **pasted
+text** and **deck-host public APIs** (Archidekt, Moxfield) instead. A best-effort MTGGoldfish
+scraper exists behind an explicit `--allow-scrape` flag but is brittle and may fail; pasting
+the Arena export (one click in your browser) is the reliable path.
 
-Moxfield's public `search-sfw` endpoint also gives a **bulk** path — no pasting one deck at a
-time:
+Two sources support **bulk** import — no pasting one deck at a time — via `deck bulk-import
+--source moxfield|aetherhub`:
 
 ```bash
-uv run mtga-mcp deck bulk-import --format Standard --count 20 --sort views
+uv run mtga-mcp deck bulk-import --source moxfield --format Standard --count 25 --sort views
+uv run mtga-mcp deck bulk-import --source aetherhub --format Standard --best-of 1 --count 25
 ```
 
-Pulls the top N public Moxfield decks for a format (ranked by `views`/`likes`/`updated`/
-`created`), importing each. Already-imported decks (matched by source URL) are skipped on
-repeat runs, so it's safe to re-run periodically to pick up newly posted decks.
+**Moxfield** (`search-sfw`, a public JSON API) ranks by `views`/`likes`/`updated`/`created`.
+**AetherHub** (`robots.txt` places no restriction at all, unlike the sites above) has no
+JSON API but its metagame listings are plain server-rendered HTML with a no-auth
+plain-text export per deck, and natively splits Bo1 (`--best-of 1`) from Bo3/Traditional
+(`--best-of 3`) — Moxfield doesn't track that distinction. Either way, already-imported
+decks (matched by source URL) are skipped on repeat runs, so it's safe to re-run
+periodically to pick up newly posted decks.
 
 ## Scheduled capture (wildcards + future card deltas)
 
