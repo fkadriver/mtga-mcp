@@ -31,25 +31,25 @@ def conn() -> sqlite3.Connection:
         "INSERT INTO wildcards(kind,count) VALUES(?,?)",
         [("common", 5), ("uncommon", 10), ("rare", 3), ("mythic", 3)],
     )
-    # Deck A: fully buildable Bo1, decent meta share.
-    _store(c, "Aggro", "Standard", best_of=1, meta_share=0.25,
+    # Deck A: fully buildable Bo1, decent win rate.
+    _store(c, "Aggro", "Standard", best_of=1, win_rate=0.55,
            text="Deck\n4 Lightning Bolt (STA) 42\n2 Sheoldred, the Apocalypse (DMU) 107\n4 Island (FDN) 270\n")
-    # Deck B: strong Bo3 tier-1 but missing 4 Counterspell.
-    _store(c, "Control", "Standard", best_of=3, tier="1",
+    # Deck B: strong win rate but missing 4 Counterspell.
+    _store(c, "Control", "Standard", best_of=3, win_rate=0.65,
            text="Deck\n4 Counterspell (STA) 16\n2 Sheoldred, the Apocalypse (DMU) 107\n")
-    # Deck C: fringe Bo1, missing 3 Counterspell.
-    _store(c, "Tempo", "Standard", best_of=1, meta_share=0.1,
+    # Deck C: fringe Bo1, no win rate reported, missing 3 Counterspell.
+    _store(c, "Tempo", "Standard", best_of=1,
            text="Deck\n4 Lightning Bolt (STA) 42\n3 Counterspell (STA) 16\n")
-    # Deck D: fully owned + high meta share, but runs a rotated card -> illegal for Standard.
-    _store(c, "Rogue", "Standard", best_of=1, meta_share=0.9,
+    # Deck D: fully owned + high win rate, but runs a rotated card -> illegal for Standard.
+    _store(c, "Rogue", "Standard", best_of=1, meta_share=0.9, win_rate=0.9,
            text="Deck\n4 Fury of the Horde (ME1) 1\n4 Lightning Bolt (STA) 42\n")
     return c
 
 
-def _store(c, name, fmt, *, best_of=None, tier=None, meta_share=None, text=""):
+def _store(c, name, fmt, *, best_of=None, tier=None, meta_share=None, win_rate=None, text=""):
     decklist.store_deck(
         c, name=name, fmt=fmt, cards=decklist.parse_decklist(text),
-        source="text", best_of=best_of, tier=tier, meta_share=meta_share,
+        source="text", best_of=best_of, tier=tier, meta_share=meta_share, win_rate=win_rate,
     )
 
 
@@ -108,25 +108,34 @@ def test_gap_caps_at_playset(conn):
     assert cs["missing"] == 3
 
 
-def test_best_buildable_ranks_by_strength_times_buildability(conn):
-    ranked = deck_analysis.best_buildable_deck(conn)
-    order = [r["name"] for r in ranked]
-    # Aggro (0.25*1.0) > Control (1.0*0.2) > Tempo (0.1*0.25)
+def test_best_buildable_ranks_by_buildability_plus_win_rate(conn):
+    ranked = {r["name"]: r for r in deck_analysis.best_buildable_deck(conn)}
+    # Aggro: buildability 1.0 + win_rate 0.55 = 1.55
+    # Control: buildability 0.2 (needs 4 uncommon) + win_rate 0.65 = 0.85
+    # Tempo: buildability 0.25 (needs 3 uncommon) + win_rate 0 (unreported) = 0.25
+    assert ranked["Aggro"]["score"] == pytest.approx(1.55)
+    assert ranked["Control"]["score"] == pytest.approx(0.85)
+    assert ranked["Tempo"]["score"] == pytest.approx(0.25)
+    order = [r["name"] for r in deck_analysis.best_buildable_deck(conn)]
     assert order == ["Aggro", "Control", "Tempo"]
-    assert ranked[0]["buildable_now"] is True
+    assert ranked["Aggro"]["buildable_now"] is True
 
 
-def test_strength_normalizes_meta_share_against_the_pool_max(conn):
-    # All three fully buildable (basics only) -> score ordering reflects strength alone.
-    _store(conn, "TopMeta", "Pioneer", best_of=1, meta_share=0.10, text="Deck\n4 Island (FDN) 270\n")
-    _store(conn, "FringeMeta", "Pioneer", best_of=1, meta_share=0.02, text="Deck\n4 Island (FDN) 270\n")
-    _store(conn, "NoData", "Pioneer", best_of=1, text="Deck\n4 Island (FDN) 270\n")
+def test_best_buildable_unreported_win_rate_is_not_penalized(conn):
+    # A deck with no win_rate at all scores exactly its buildability (a 0 bonus, not a
+    # multiplier that would otherwise zero it out or rank it below a reported-but-poor deck).
+    _store(conn, "Mystery", "Pioneer", best_of=1, text="Deck\n4 Island (FDN) 270\n")
+    _store(conn, "KnownWeak", "Pioneer", best_of=1, win_rate=0.1,
+           text="Deck\n4 Island (FDN) 270\n")
     ranked = {r["name"]: r for r in deck_analysis.best_buildable_deck(conn, fmt="Pioneer")}
-    # The strongest known archetype (0.10, the pool max) reaches full strength like an
-    # untagged deck -- it's not capped near zero just because 10% is "small" in absolute terms,
-    # which is what raw meta_share-as-strength would otherwise do.
-    assert ranked["TopMeta"]["score"] == ranked["NoData"]["score"] == 1.0
-    assert ranked["FringeMeta"]["score"] == pytest.approx(0.2)  # 0.02 / 0.10, scaled down
+    assert ranked["Mystery"]["score"] == pytest.approx(1.0)  # buildability 1.0 + 0
+    assert ranked["KnownWeak"]["score"] == pytest.approx(1.1)  # buildability 1.0 + 0.1
+    assert ranked["Mystery"]["win_rate"] is None
+
+
+def test_best_buildable_includes_source(conn):
+    ranked = {r["name"]: r for r in deck_analysis.best_buildable_deck(conn)}
+    assert ranked["Aggro"]["source"] == "text"
 
 
 def test_best_buildable_filters_best_of(conn):
@@ -158,7 +167,7 @@ def test_best_buildable_include_illegal_flags_but_keeps(conn):
     rogue = by_name["Rogue"]
     assert rogue["format_legal"] is False
     assert [c["name"] for c in rogue["illegal_cards"]] == ["Fury of the Horde"]
-    # It still ranks (top, on raw strength × buildability) when illegal decks are included.
+    # It still ranks (top, on buildability + win_rate) when illegal decks are included.
     assert ranked[0]["name"] == "Rogue"
     assert by_name["Aggro"]["illegal_cards"] == []
 

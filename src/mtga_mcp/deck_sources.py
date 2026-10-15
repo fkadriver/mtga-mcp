@@ -41,6 +41,7 @@ class FetchedDeck:
     source_url: str | None = None
     best_of: int | None = None
     meta_share: float | None = None  # 0..1 fraction of the field, when the source reports one
+    win_rate: float | None = None  # 0..1, when the source reports one
     extra: dict = field(default_factory=dict)
 
 
@@ -163,6 +164,10 @@ def search_moxfield(fmt: str | None, *, count: int = 25, sort: str = "updated") 
 _AETHERHUB_SINGLE_SLUGS = {"brawl": "Brawl", "historicbrawl": "Historic-Brawl", "limited": "Limited"}
 _AETHERHUB_BO_FORMATS = {"standard", "historic", "explorer", "alchemy", "timeless"}
 _AETHERHUB_ROW = re.compile(r'/Metagame/[^"]+/Deck/[\w-]+-(?P<id>\d+)"><b>(?P<name>[^<]+)</b>')
+# Each row's own "NN% Win Rate: W Wins - L Losses" cell, in the same document order as the
+# rows above -- zipped together per page rather than folded into one regex, since the two
+# live in separate <td>s (see the matching pattern in search_aetherhub_meta above).
+_AETHERHUB_WIN_RATE = re.compile(r'(\d+)% Win Rate: \d+ Wins - \d+ Losses')
 
 
 def _aetherhub_slug(fmt: str | None, best_of: int | None) -> str:
@@ -174,14 +179,15 @@ def _aetherhub_slug(fmt: str | None, best_of: int | None) -> str:
 
 
 def search_aetherhub(fmt: str | None, *, best_of: int | None = None, count: int = 25) -> list[FetchedDeck]:
-    """Top N decks from aetherhub.com's metagame listing for a format (newest first).
+    """Top N decks from aetherhub.com's metagame listing for a format (newest first), each
+    tagged with its own win rate straight off the listing.
 
-    Pages the listing (~75 rows/page) for (id, name) pairs, then fetches each deck's
-    plain-text export individually -- a failed individual fetch is skipped rather than
+    Pages the listing (~75 rows/page) for (id, name, win_rate) triples, then fetches each
+    deck's plain-text export individually -- a failed individual fetch is skipped rather than
     aborting the whole batch.
     """
     slug = _aetherhub_slug(fmt, best_of)
-    found: list[tuple[str, str]] = []
+    found: list[tuple[str, str, str]] = []
     page = 1
     while len(found) < count and page <= 20:
         resp = httpx.get(
@@ -198,11 +204,15 @@ def search_aetherhub(fmt: str | None, *, best_of: int | None = None, count: int 
         rows = _AETHERHUB_ROW.findall(resp.text)
         if not rows:
             break
-        found.extend(rows)
+        win_rates = _AETHERHUB_WIN_RATE.findall(resp.text)
+        found.extend(
+            (deck_id, name, (win_rates[i] if i < len(win_rates) else None))
+            for i, (deck_id, name) in enumerate(rows)
+        )
         page += 1
 
     results: list[FetchedDeck] = []
-    for deck_id, name in found[:count]:
+    for deck_id, name, win_rate_pct in found[:count]:
         try:
             resp = httpx.get(
                 f"https://aetherhub.com/Deck/MtgoDeckExport/{deck_id}", headers=_HEADERS, timeout=30,
@@ -211,6 +221,7 @@ def search_aetherhub(fmt: str | None, *, best_of: int | None = None, count: int 
             results.append(FetchedDeck(
                 name=name, fmt=fmt, cards=parse_decklist(resp.text), source="aetherhub",
                 source_url=f"https://aetherhub.com/Deck/{deck_id}", best_of=best_of,
+                win_rate=round(int(win_rate_pct) / 100, 4) if win_rate_pct is not None else None,
             ))
         except (httpx.HTTPError, ValueError):
             continue

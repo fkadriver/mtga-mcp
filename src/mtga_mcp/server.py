@@ -86,9 +86,10 @@ def query_sql(sql: str, limit: int = 200) -> list[dict[str, Any]]:
 @mcp.tool(description="Import a decklist and store it for buildability analysis. Provide "
                       "exactly one of `text` (pasted Arena/MTGO list) or `url` (Archidekt or "
                       "Moxfield). Optional meta metadata: best_of (1 or 3), tier, meta_share "
-                      "(0..1) feed the best_buildable_deck ranking. Set allow_scrape=true to "
-                      "attempt an MTGGoldfish URL (unreliable). Returns the deck id and any "
-                      "card names that couldn't be matched.")
+                      "(0..1), win_rate (0..1) -- win_rate feeds the best_buildable_deck "
+                      "ranking directly (score = buildability + win_rate). Set "
+                      "allow_scrape=true to attempt an MTGGoldfish URL (unreliable). Returns "
+                      "the deck id and any card names that couldn't be matched.")
 def import_deck(
     text: str | None = None,
     url: str | None = None,
@@ -97,6 +98,7 @@ def import_deck(
     best_of: int | None = None,
     tier: str | None = None,
     meta_share: float | None = None,
+    win_rate: float | None = None,
     allow_scrape: bool = False,
 ) -> dict[str, Any]:
     if bool(text) == bool(url):
@@ -113,6 +115,7 @@ def import_deck(
             cards=fetched.cards, source=fetched.source, source_url=fetched.source_url,
             best_of=best_of if best_of is not None else fetched.best_of,
             tier=tier, meta_share=meta_share,
+            win_rate=win_rate if win_rate is not None else fetched.win_rate,
         )
     return {
         "deck_id": stored.deck_id, "name": name or fetched.name,
@@ -121,11 +124,12 @@ def import_deck(
     }
 
 
-@mcp.tool(description="List stored decks with format, best_of, tier and source.")
+@mcp.tool(description="List stored decks with format, best_of, tier, meta_share, win_rate "
+                      "and source.")
 def list_decks() -> list[dict[str, Any]]:
     with db.connect_readonly() as conn:
         rows = conn.execute(
-            "SELECT id, name, format, best_of, tier, meta_share, source, imported_at "
+            "SELECT id, name, format, best_of, tier, meta_share, win_rate, source, imported_at "
             "FROM decks ORDER BY id"
         ).fetchall()
         return [dict(r) for r in rows]
@@ -145,9 +149,11 @@ def craft_priority(format: str | None = None) -> list[dict[str, Any]]:
         return deck_analysis.craft_priority(conn, fmt=format)
 
 
-@mcp.tool(description="The best deck you could build given your cards and the meta. Ranks stored "
-                      "decks by meta strength x buildability. Filter by best_of (1 or 3) and "
-                      "format; max_wildcards hides decks needing more than that many wildcards.")
+@mcp.tool(description="The best deck you could build given your cards and the meta. Ranks "
+                      "stored decks by score = buildability + win_rate (win_rate 0 when "
+                      "unknown, so it's a bonus on top of buildability, not a penalty). "
+                      "Filter by best_of (1 or 3) and format; max_wildcards hides decks "
+                      "needing more than that many wildcards.")
 def best_buildable_deck(
     best_of: int | None = None,
     format: str | None = None,

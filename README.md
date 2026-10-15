@@ -155,7 +155,7 @@ Then ask things like:
 | `list_decks` | List stored decks |
 | `deck_gap` | Cards + wildcards needed to complete a deck |
 | `craft_priority` | Which cards to craft to unlock the most decks |
-| `best_buildable_deck` | Best Bo1/Bo3 deck you could build, meta strength × buildability |
+| `best_buildable_deck` | Best Bo1/Bo3 deck you could build, buildability + win rate |
 | `delete_deck` | Remove a stored deck |
 | `wildcard_history` | Recent history of wildcard/currency balances (from scheduled capture) |
 
@@ -169,7 +169,7 @@ Import meta decks (or your own brews), then ask what you're missing and what to 
 ```bash
 # Import from pasted Arena/MTGO text (tag it with meta info for ranking):
 pbpaste | uv run mtga-mcp deck import --paste --name "Mono-Red" --format Standard \
-  --best-of 1 --meta-share 0.18
+  --best-of 1 --win-rate 0.58
 uv run mtga-mcp deck import --file list.txt --name "Dimir Midrange" --best-of 3 --tier 1
 
 # Import from a deck host with a public API:
@@ -182,10 +182,14 @@ uv run mtga-mcp deck craft-priority           # what to craft to unlock the most
 ```
 
 The **north-star** query — *"given my cards and the current meta, what's the best Bo1/Bo3
-deck I could build?"* — is `deck best`, which ranks decks by meta strength × how few
-wildcards you're missing. Strength comes from the `--tier` / `--meta-share` / `--win-rate`
-you supply at import (meta sites don't expose this programmatically); with none supplied it
-ranks purely by buildability.
+deck I could build?"* — is `deck best`, which scores each deck as
+`buildability + win_rate`. `buildability = 1 / (1 + wildcards_needed)`, so an
+already-buildable deck scores at least 1.0 and always outranks one that isn't, regardless of
+win rate. `win_rate` (0..1) is a bonus on top of that, not a penalty — a deck with no
+reported win rate just gets 0 added, so it ranks on buildability alone rather than being
+penalized for a stat nobody tracked. Set it with `--win-rate` on `deck import`, or pull it
+automatically via `deck bulk-import --source aetherhub` (see below). `--tier`/`--meta-share`
+are still stored and shown per deck, but don't currently feed the score.
 
 Decks containing cards not legal in their format (rotated or banned, per the Scryfall
 legalities) are excluded by default — a "best deck" you can't actually play isn't an answer.
@@ -213,20 +217,16 @@ uv run mtga-mcp deck bulk-import --source aetherhub-meta --format Standard --bes
 ```
 
 **Moxfield** (`search-sfw`, a public JSON API) ranks by `views`/`likes`/`updated`/`created`,
-but carries no meta-strength signal. **AetherHub** (`robots.txt` places no restriction at
-all, unlike the sites above) has no JSON API but its metagame listings are plain
+but carries no win-rate data. **AetherHub** (`robots.txt` places no restriction at all,
+unlike the sites above) has no JSON API but its metagame listings are plain
 server-rendered HTML with a no-auth plain-text export per deck, and natively splits Bo1
 (`--best-of 1`) from Bo3/Traditional (`--best-of 3`) — Moxfield doesn't track that
-distinction. **`aetherhub-meta`** is a third mode on the same site: instead of many
-individual decks, it pulls one representative decklist per archetype from AetherHub's
-metagame *overview* page, tagged with that archetype's real `meta_share` (its own "% of
-Metagame" figure) — the only source here that feeds `deck best`'s ranking an actual
-strength signal rather than ranking purely on buildability.
-
-Note: an untagged deck (no `meta_share`/`tier`/`win_rate`) defaults to `strength = 1.0`
-("rank purely on buildability") — a real-but-small `meta_share` like 5% can therefore still
-rank *below* an equally-buildable untagged deck, since the two aren't on a comparable scale.
-Mix `aetherhub-meta` pulls with the others deliberately, not as a drop-in strength upgrade.
+distinction. It also shows each deck's own win rate right on the listing, which gets pulled
+in as `win_rate` and feeds `deck best`'s score directly. **`aetherhub-meta`** is a third mode
+on the same site: instead of many individual decks, it pulls one representative decklist per
+archetype from AetherHub's metagame *overview* page, tagged with that archetype's real
+`meta_share` (its own "% of Metagame" figure) — informational (stored and shown per deck),
+but it doesn't feed `score` the way `aetherhub`'s `win_rate` does.
 
 Either way, already-imported decks (matched by source URL) are skipped on repeat runs, so
 it's safe to re-run periodically to pick up newly posted decks.

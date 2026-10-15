@@ -3,7 +3,7 @@
 Three capabilities:
   * ``deck_gap``            — cards + wildcards needed to complete one deck
   * ``craft_priority``      — which cards to craft to unlock the most decks
-  * ``best_buildable_deck`` — best Bo1/Bo3 deck you can (nearly) build, meta strength × buildability
+  * ``best_buildable_deck`` — best Bo1/Bo3 deck you can (nearly) build, buildability + win rate
 
 A constructed deck may run at most 4 copies of a card across main + sideboard (basics
 excepted), so needed copies per card name are aggregated across boards and capped at 4.
@@ -17,7 +17,6 @@ from collections import defaultdict
 from .decklist import PLAYSET, resolve_card
 
 _WILDCARD_RARITIES = ("common", "uncommon", "rare", "mythic")
-_TIER_WEIGHT = {"1": 1.0, "a": 1.0, "2": 0.7, "b": 0.7, "3": 0.45, "c": 0.45, "4": 0.3, "d": 0.3}
 
 # Deck format (lowercased) -> the Scryfall legality column ingest_scryfall populated. Formats
 # without a column here (Alchemy, Timeless, Brawl, ...) can't be legality-checked, so
@@ -196,30 +195,6 @@ def _illegal_cards(conn: sqlite3.Connection, deck_id: int, fmt: str | None) -> l
     ]
 
 
-def _strength(row: sqlite3.Row, max_meta_share: float | None) -> float:
-    """A 0..1-ish strength signal from whatever meta metadata is available, where 1.0 means
-    "as good as it gets" consistently across sources.
-
-    ``meta_share`` is a literal fraction of the *whole* metagame -- even a dominant archetype
-    is usually 5-15%, not 100%, since many archetypes split the field. That's not on the same
-    scale as ``win_rate``/``tier``, where 1.0 already means "great deck", so it's rescaled
-    relative to the strongest ``meta_share`` actually present in this fmt/best_of pool
-    (``max_meta_share``) before being used as strength -- the top archetype becomes 1.0, a
-    archetype at a tenth of its share becomes 0.1, etc. Without that, every known meta_share
-    would rank *below* every deck with no strength data at all (which defaults to 1.0 below),
-    since raw percentages are almost always much less than 1.0.
-    """
-    if row["meta_share"] is not None:
-        if not max_meta_share:
-            return 1.0
-        return max(0.0, min(1.0, float(row["meta_share"]) / max_meta_share))
-    if row["win_rate"] is not None:
-        return float(row["win_rate"])
-    if row["tier"]:
-        return _TIER_WEIGHT.get(str(row["tier"]).strip().lower(), 0.5)
-    return 1.0  # unknown strength: rank purely on buildability
-
-
 def best_buildable_deck(
     conn: sqlite3.Connection,
     *,
@@ -228,20 +203,22 @@ def best_buildable_deck(
     max_wildcards: int | None = None,
     include_illegal: bool = False,
 ) -> list[dict]:
-    """Rank decks by meta strength × buildability. Answers the north-star question:
+    """Rank decks by buildability + win rate. Answers the north-star question:
     'given my cards and the meta, what's the best Bo1/Bo3 deck I could build?'
+
+    ``score = buildability + win_rate`` (win_rate as a 0..1 fraction, 0 when the source
+    didn't report one -- it's a bonus on top of buildability, not a penalty for decks nobody
+    tracked a win rate for). ``buildability = 1 / (1 + wildcards_needed)``, so an
+    already-buildable deck scores at least 1.0 and always outranks one that isn't, regardless
+    of win rate.
 
     Decks that contain cards not legal in their format (rotated/banned) are excluded by
     default -- a deck you can't actually play isn't a real answer. Pass ``include_illegal=True``
     to keep them (each result carries ``format_legal`` and any ``illegal_cards``). Formats
     without legality data (Alchemy/Timeless) are never excluded on legality grounds."""
     owned_wc = _wildcards_owned(conn)
-    deck_rows = _decks(conn, best_of=best_of, fmt=fmt)
-    max_meta_share = max(
-        (d["meta_share"] for d in deck_rows if d["meta_share"] is not None), default=None
-    )
     results: list[dict] = []
-    for d in deck_rows:
+    for d in _decks(conn, best_of=best_of, fmt=fmt):
         illegal = _illegal_cards(conn, d["id"], d["format"])
         if illegal and not include_illegal:
             continue
@@ -256,23 +233,24 @@ def best_buildable_deck(
             and not gap["unresolved"]
             and all(need <= owned_wc.get(r, 0) for r, need in gap["wildcards_needed"].items())
         )
-        strength = _strength(d, max_meta_share)
         buildability = 1.0 / (1.0 + total_wc)
+        win_rate = float(d["win_rate"]) if d["win_rate"] is not None else 0.0
         results.append({
             "deck_id": d["id"],
             "name": d["name"],
             "format": d["format"],
             "best_of": d["best_of"],
+            "source": d["source"],
             "tier": d["tier"],
             "meta_share": d["meta_share"],
-            "strength": round(strength, 4),
+            "win_rate": d["win_rate"],
             "wildcards_needed_total": total_wc,
             "wildcards_needed": gap["wildcards_needed"],
             "buildable_now": gap["buildable"],
             "craftable_now": craftable_now,
             "format_legal": None if illegal is None else not illegal,
             "illegal_cards": illegal or [],
-            "score": round(strength * buildability, 4),
+            "score": round(buildability + win_rate, 4),
         })
     results.sort(key=lambda r: (-r["score"], r["wildcards_needed_total"]))
     return results

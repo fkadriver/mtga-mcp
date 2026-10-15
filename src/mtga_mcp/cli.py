@@ -232,6 +232,7 @@ def _cmd_deck_import(args: argparse.Namespace) -> int:
             cards=fetched.cards, source=fetched.source, source_url=fetched.source_url,
             best_of=args.best_of if args.best_of is not None else fetched.best_of,
             tier=args.tier, meta_share=args.meta_share,
+            win_rate=args.win_rate if args.win_rate is not None else fetched.win_rate,
         )
     finally:
         conn.close()
@@ -270,7 +271,7 @@ def _cmd_deck_bulk_import(args: argparse.Namespace) -> int:
                 conn, name=fetched.name, fmt=args.format or fetched.fmt, cards=fetched.cards,
                 source=fetched.source, source_url=fetched.source_url,
                 best_of=args.best_of if args.best_of is not None else fetched.best_of,
-                meta_share=fetched.meta_share,
+                meta_share=fetched.meta_share, win_rate=fetched.win_rate,
             )
             imported += 1
             print(f"  imported #{stored.deck_id}: {fetched.name} ({stored.resolved} cards resolved)")
@@ -284,7 +285,8 @@ def _cmd_deck_list(_args: argparse.Namespace) -> int:
     conn = db.connect_readonly()
     try:
         _pretty([dict(r) for r in conn.execute(
-            "SELECT id, name, format, best_of, tier, meta_share, source FROM decks ORDER BY id"
+            "SELECT id, name, format, best_of, tier, meta_share, win_rate, source "
+            "FROM decks ORDER BY id"
         )])
     finally:
         conn.close()
@@ -355,7 +357,7 @@ def _render_best_list(results: list[dict]) -> None:
             tag = f"🔓 craftable now — spend {_fmt_wildcards(r['wildcards_needed'])}"
         else:
             tag = f"needs {_fmt_wildcards(r['wildcards_needed'])}"
-        print(f"  [{i}] {r['name']}")
+        print(f"  [{i}] {r['name']}  ({r['source']})")
         print(f"      {r['format']} {bo}   score {r['score']}   {tag}")
 
 
@@ -451,6 +453,7 @@ def _add_deck_commands(sub) -> None:
     imp.add_argument("--best-of", type=int, choices=(1, 3), dest="best_of", help="1 or 3")
     imp.add_argument("--tier", help="Meta tier, e.g. 1 / 2 / A / B")
     imp.add_argument("--meta-share", type=float, dest="meta_share", help="Meta share 0..1")
+    imp.add_argument("--win-rate", type=float, dest="win_rate", help="Win rate 0..1")
     imp.add_argument("--allow-scrape", action="store_true", help="Permit MTGGoldfish scraping")
     imp.set_defaults(func=_cmd_deck_import)
 
@@ -460,7 +463,8 @@ def _add_deck_commands(sub) -> None:
         "bulk-import", help="Import the top N meta decks for a format from Moxfield or AetherHub")
     bulk.add_argument("--source", choices=("moxfield", "aetherhub", "aetherhub-meta"),
                        default="moxfield",
-                       help="moxfield/aetherhub: many individual decks, no strength signal. "
+                       help="moxfield: many individual decks, no strength signal. aetherhub: "
+                            "many individual decks, each tagged with its own win_rate. "
                             "aetherhub-meta: one representative deck per archetype, tagged "
                             "with its real meta_share from AetherHub's metagame overview")
     bulk.add_argument("--format", help="Format to search, e.g. Standard/Historic/Alchemy")
