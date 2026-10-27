@@ -201,6 +201,12 @@ Pass `--include-illegal` to keep them, flagged with `format_legal` and the offen
 `illegal_cards`. Formats without legality data (Alchemy/Timeless) are never excluded on those
 grounds.
 
+Your own decks (`deck import-mine`, source `player_log`) are already fully owned and often
+carry a tracked `local_win_rate`, so they tend to float straight to the top — not useful when
+you're trying to explore a *different* deck/meta. Pass `--exclude-mine` (`deck best`/`deck
+wizard`/`bo1`/`bo3`, or the interactive wizard's prompt) to drop them from the ranking; they're
+untouched in the database either way.
+
 Pulling the same archetype from multiple sources means seeing it 5 times in a row in `deck
 best` isn't an answer either. Decks within 2 mainboard cards of each other (same format,
 basics/sideboard ignored) are treated as the same deck: `deck best`/`bo1`/`bo3` show only the

@@ -46,10 +46,11 @@ def conn() -> sqlite3.Connection:
     return c
 
 
-def _store(c, name, fmt, *, best_of=None, tier=None, meta_share=None, win_rate=None, text=""):
+def _store(c, name, fmt, *, best_of=None, tier=None, meta_share=None, win_rate=None,
+           source="text", text=""):
     decklist.store_deck(
         c, name=name, fmt=fmt, cards=decklist.parse_decklist(text),
-        source="text", best_of=best_of, tier=tier, meta_share=meta_share, win_rate=win_rate,
+        source=source, best_of=best_of, tier=tier, meta_share=meta_share, win_rate=win_rate,
     )
 
 
@@ -192,6 +193,18 @@ def test_best_buildable_normalizes_meta_share_within_the_average(conn):
 def test_best_buildable_includes_source(conn):
     ranked = {r["name"]: r for r in deck_analysis.best_buildable_deck(conn)}
     assert ranked["Aggro"]["source"] == "text"
+
+
+def test_exclude_mine_drops_player_log_decks(conn):
+    _store(conn, "My Own Deck", "Standard", best_of=1, source="player_log",
+           text="Deck\n4 Lightning Bolt (STA) 42\n4 Island (FDN) 270\n")
+    names_with_mine = {r["name"] for r in deck_analysis.best_buildable_deck(conn)}
+    assert "My Own Deck" in names_with_mine
+    names_without_mine = {
+        r["name"] for r in deck_analysis.best_buildable_deck(conn, exclude_mine=True)
+    }
+    assert "My Own Deck" not in names_without_mine
+    assert "Aggro" in names_without_mine  # other decks unaffected
 
 
 def test_best_buildable_collapses_near_duplicates(conn):

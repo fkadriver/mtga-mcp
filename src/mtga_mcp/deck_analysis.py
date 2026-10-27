@@ -272,6 +272,7 @@ def best_buildable_deck(
     fmt: str | None = None,
     max_wildcards: int | None = None,
     include_illegal: bool = False,
+    exclude_mine: bool = False,
 ) -> list[dict]:
     """Rank decks by buildability + strength. Answers the north-star question:
     'given my cards and the meta, what's the best Bo1/Bo3 deck I could build?'
@@ -286,9 +287,16 @@ def best_buildable_deck(
     Decks that contain cards not legal in their format (rotated/banned) are excluded by
     default -- a deck you can't actually play isn't a real answer. Pass ``include_illegal=True``
     to keep them (each result carries ``format_legal`` and any ``illegal_cards``). Formats
-    without legality data (Alchemy/Timeless) are never excluded on legality grounds."""
+    without legality data (Alchemy/Timeless) are never excluded on legality grounds.
+
+    Your own decks (source ``player_log``, from ``deck import-mine``) are already fully owned
+    and often carry a tracked ``local_win_rate``, so they tend to float straight to the top --
+    not useful when you're trying to explore a *different* deck/meta. Pass ``exclude_mine=True``
+    to drop them from the ranking entirely (they're untouched in the database either way)."""
     owned_wc = _wildcards_owned(conn)
     deck_rows = _decks(conn, best_of=best_of, fmt=fmt)
+    if exclude_mine:
+        deck_rows = [d for d in deck_rows if d["source"] != "player_log"]
     max_meta_share = max(
         (d["meta_share"] for d in deck_rows if d["meta_share"] is not None), default=None
     )

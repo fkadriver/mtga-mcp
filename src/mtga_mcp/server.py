@@ -155,15 +155,20 @@ def craft_priority(format: str | None = None) -> list[dict[str, Any]]:
                       "strength_bonus averages whichever of win_rate/meta_share/tier the "
                       "deck has (0 when none are known, so it's a bonus, never a penalty). "
                       "Filter by best_of (1 or 3) and format; max_wildcards hides decks "
-                      "needing more than that many wildcards.")
+                      "needing more than that many wildcards. exclude_mine drops your own "
+                      "decks (from deck import-mine) -- they tend to float to the top since "
+                      "you already own every card, which isn't useful when exploring a "
+                      "different deck/meta.")
 def best_buildable_deck(
     best_of: int | None = None,
     format: str | None = None,
     max_wildcards: int | None = None,
+    exclude_mine: bool = False,
 ) -> list[dict[str, Any]]:
     with db.connect_readonly() as conn:
         return deck_analysis.best_buildable_deck(
-            conn, best_of=best_of, fmt=format, max_wildcards=max_wildcards
+            conn, best_of=best_of, fmt=format, max_wildcards=max_wildcards,
+            exclude_mine=exclude_mine,
         )
 
 

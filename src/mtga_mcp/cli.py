@@ -354,7 +354,7 @@ def _cmd_deck_best(args: argparse.Namespace) -> int:
     try:
         _pretty(deck_analysis.best_buildable_deck(
             conn, best_of=best_of, fmt=args.format, max_wildcards=args.max_wildcards,
-            include_illegal=args.include_illegal,
+            include_illegal=args.include_illegal, exclude_mine=args.exclude_mine,
         ))
     finally:
         conn.close()
@@ -412,17 +412,23 @@ def _cmd_deck_wizard(args: argparse.Namespace) -> int:
 
     fmt = None
     budget = None
+    exclude_mine = args.exclude_mine
     if interactive:
         raw = input("Format?  (e.g. Standard, Historic; [Enter] any)  > ").strip()
         fmt = raw or None
         raw = input("Max wildcards to spend?  (number; [Enter] no cap)  > ").strip()
         if raw.isdigit():
             budget = int(raw)
+        if not exclude_mine:
+            raw = input("Exclude your own decks?  (try a different deck/meta)  "
+                        "[y] yes / [Enter] no  > ").strip().lower()
+            exclude_mine = raw in ("y", "yes")
 
     conn = db.connect_readonly()
     try:
         results = deck_analysis.best_buildable_deck(
             conn, best_of=best_of, fmt=fmt, max_wildcards=budget, include_illegal=False,
+            exclude_mine=exclude_mine,
         )
         results = results[:15]
         _render_best_list(results)
@@ -533,12 +539,17 @@ def _add_deck_commands(sub) -> None:
                       help="Hide decks needing more than this many wildcards")
     best.add_argument("--include-illegal", action="store_true", dest="include_illegal",
                       help="Keep decks with cards not legal in their format (flagged, not hidden)")
+    best.add_argument("--exclude-mine", action="store_true", dest="exclude_mine",
+                      help="Drop your own decks (deck import-mine) from the ranking -- they "
+                           "tend to float to the top since you already own every card")
     best.set_defaults(func=_cmd_deck_best)
 
     wiz = dsub.add_parser(
         "wizard", help="Interactive picker: choose Bo/format/budget, then drill into any deck")
     wiz.add_argument("--best-of", type=int, choices=(1, 3), dest="best_of",
                      help="Preset Bo1/Bo3 and skip that prompt")
+    wiz.add_argument("--exclude-mine", action="store_true", dest="exclude_mine",
+                     help="Preset excluding your own decks and skip that prompt")
     wiz.set_defaults(func=_cmd_deck_wizard)
 
     dele = dsub.add_parser("delete", help="Delete a stored deck")
