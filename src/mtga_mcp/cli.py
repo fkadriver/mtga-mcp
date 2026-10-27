@@ -421,8 +421,8 @@ def _cmd_deck_wizard(args: argparse.Namespace) -> int:
             budget = int(raw)
         if not exclude_mine:
             raw = input("Exclude your own decks?  (try a different deck/meta)  "
-                        "[y] yes / [Enter] no  > ").strip().lower()
-            exclude_mine = raw in ("y", "yes")
+                        "[Enter] yes / [n] no  > ").strip().lower()
+            exclude_mine = raw not in ("n", "no")
 
     conn = db.connect_readonly()
     try:

@@ -203,9 +203,10 @@ grounds.
 
 Your own decks (`deck import-mine`, source `player_log`) are already fully owned and often
 carry a tracked `local_win_rate`, so they tend to float straight to the top — not useful when
-you're trying to explore a *different* deck/meta. Pass `--exclude-mine` (`deck best`/`deck
-wizard`/`bo1`/`bo3`, or the interactive wizard's prompt) to drop them from the ranking; they're
-untouched in the database either way.
+you're trying to explore a *different* deck/meta. The interactive wizard (`bo`/`bo1`/`bo3`)
+excludes them by default (its prompt defaults to yes — answer `n` to include them); `deck
+best` needs an explicit `--exclude-mine` (default off there). They're untouched in the
+database either way.
 
 Pulling the same archetype from multiple sources means seeing it 5 times in a row in `deck
 best` isn't an answer either. Decks within 2 mainboard cards of each other (same format,
