@@ -158,17 +158,22 @@ def craft_priority(format: str | None = None) -> list[dict[str, Any]]:
                       "needing more than that many wildcards. exclude_mine drops your own "
                       "decks (from deck import-mine) -- they tend to float to the top since "
                       "you already own every card, which isn't useful when exploring a "
-                      "different deck/meta.")
+                      "different deck/meta. contains restricts to decks that include every "
+                      "listed card name -- build around a single card, or a combo if you "
+                      "list several. name_contains restricts to decks whose name contains "
+                      "that substring (e.g. 'mono red') -- build around a named archetype/meta.")
 def best_buildable_deck(
     best_of: int | None = None,
     format: str | None = None,
     max_wildcards: int | None = None,
     exclude_mine: bool = False,
+    contains: list[str] | None = None,
+    name_contains: str | None = None,
 ) -> list[dict[str, Any]]:
     with db.connect_readonly() as conn:
         return deck_analysis.best_buildable_deck(
             conn, best_of=best_of, fmt=format, max_wildcards=max_wildcards,
-            exclude_mine=exclude_mine,
+            exclude_mine=exclude_mine, contains=contains, name_contains=name_contains,
         )
 
 

@@ -355,6 +355,7 @@ def _cmd_deck_best(args: argparse.Namespace) -> int:
         _pretty(deck_analysis.best_buildable_deck(
             conn, best_of=best_of, fmt=args.format, max_wildcards=args.max_wildcards,
             include_illegal=args.include_illegal, exclude_mine=args.exclude_mine,
+            contains=args.contains, name_contains=args.name_contains,
         ))
     finally:
         conn.close()
@@ -413,6 +414,8 @@ def _cmd_deck_wizard(args: argparse.Namespace) -> int:
     fmt = None
     budget = None
     exclude_mine = args.exclude_mine
+    contains = None
+    name_contains = None
     if interactive:
         raw = input("Format?  (e.g. Standard, Historic; [Enter] any)  > ").strip()
         fmt = raw or None
@@ -423,12 +426,18 @@ def _cmd_deck_wizard(args: argparse.Namespace) -> int:
             raw = input("Exclude your own decks?  (try a different deck/meta)  "
                         "[Enter] yes / [n] no  > ").strip().lower()
             exclude_mine = raw not in ("n", "no")
+        raw = input("Build around specific card(s)?  (comma-separated; [Enter] skip)  > ").strip()
+        if raw:
+            contains = [c.strip() for c in raw.split(",") if c.strip()]
+        raw = input("Restrict to an archetype/meta name?  (e.g. 'mono red'; [Enter] skip)  "
+                    "> ").strip()
+        name_contains = raw or None
 
     conn = db.connect_readonly()
     try:
         results = deck_analysis.best_buildable_deck(
             conn, best_of=best_of, fmt=fmt, max_wildcards=budget, include_illegal=False,
-            exclude_mine=exclude_mine,
+            exclude_mine=exclude_mine, contains=contains, name_contains=name_contains,
         )
         results = results[:15]
         _render_best_list(results)
@@ -542,6 +551,12 @@ def _add_deck_commands(sub) -> None:
     best.add_argument("--exclude-mine", action="store_true", dest="exclude_mine",
                       help="Drop your own decks (deck import-mine) from the ranking -- they "
                            "tend to float to the top since you already own every card")
+    best.add_argument("--contains", action="append", dest="contains", metavar="CARD",
+                      help="Only decks that include this card (any board). Repeat for a "
+                           "combo -- every listed card must be in the deck")
+    best.add_argument("--name-contains", dest="name_contains", metavar="TEXT",
+                      help="Only decks whose name contains this text (case-insensitive) -- "
+                           "build around a named archetype/meta, e.g. 'mono red'")
     best.set_defaults(func=_cmd_deck_best)
 
     wiz = dsub.add_parser(

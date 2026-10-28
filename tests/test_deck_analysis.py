@@ -263,6 +263,33 @@ def test_unknown_format_not_legality_excluded(conn):
     assert ranked["Brew"]["format_legal"] is None
 
 
+def test_best_buildable_contains_single_card(conn):
+    # Aggro and Tempo both run Lightning Bolt; Control doesn't.
+    names = {r["name"] for r in deck_analysis.best_buildable_deck(conn, contains=["Lightning Bolt"])}
+    assert names == {"Aggro", "Tempo"}
+
+
+def test_best_buildable_contains_combo_requires_all_cards(conn):
+    # Only Tempo runs both Lightning Bolt and Counterspell.
+    ranked = deck_analysis.best_buildable_deck(
+        conn, contains=["Lightning Bolt", "Counterspell"]
+    )
+    assert [r["name"] for r in ranked] == ["Tempo"]
+
+
+def test_best_buildable_contains_is_case_insensitive_and_no_match_is_empty(conn):
+    names = {r["name"] for r in deck_analysis.best_buildable_deck(conn, contains=["lightning bolt"])}
+    assert "Aggro" in names
+    assert deck_analysis.best_buildable_deck(conn, contains=["Nonexistent Card"]) == []
+
+
+def test_best_buildable_name_contains_filters_by_archetype(conn):
+    _store(conn, "Mono Red Aggro", "Standard", best_of=1,
+           text="Deck\n4 Lightning Bolt (STA) 42\n4 Island (FDN) 270\n")
+    names = {r["name"] for r in deck_analysis.best_buildable_deck(conn, name_contains="mono red")}
+    assert names == {"Mono Red Aggro"}
+
+
 def test_craft_priority_unlocks_most_decks(conn):
     ranked = deck_analysis.craft_priority(conn)
     top = ranked[0]

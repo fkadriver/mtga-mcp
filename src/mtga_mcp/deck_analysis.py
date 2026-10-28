@@ -187,7 +187,13 @@ def craft_priority(conn: sqlite3.Connection, *, fmt: str | None = None) -> list[
     return ranked
 
 
-def _decks(conn: sqlite3.Connection, *, best_of: int | None = None, fmt: str | None = None):
+def _decks(
+    conn: sqlite3.Connection,
+    *,
+    best_of: int | None = None,
+    fmt: str | None = None,
+    name_contains: str | None = None,
+):
     where, params = [], []
     if fmt:
         where.append("format = ? COLLATE NOCASE")
@@ -196,6 +202,9 @@ def _decks(conn: sqlite3.Connection, *, best_of: int | None = None, fmt: str | N
         # A deck with best_of NULL is valid for either; match it too.
         where.append("(best_of = ? OR best_of IS NULL)")
         params.append(best_of)
+    if name_contains:
+        where.append("name LIKE '%' || ? || '%' COLLATE NOCASE")
+        params.append(name_contains)
     sql = "SELECT * FROM decks"
     if where:
         sql += " WHERE " + " AND ".join(where)
@@ -273,6 +282,8 @@ def best_buildable_deck(
     max_wildcards: int | None = None,
     include_illegal: bool = False,
     exclude_mine: bool = False,
+    contains: list[str] | None = None,
+    name_contains: str | None = None,
 ) -> list[dict]:
     """Rank decks by buildability + strength. Answers the north-star question:
     'given my cards and the meta, what's the best Bo1/Bo3 deck I could build?'
@@ -292,11 +303,17 @@ def best_buildable_deck(
     Your own decks (source ``player_log``, from ``deck import-mine``) are already fully owned
     and often carry a tracked ``local_win_rate``, so they tend to float straight to the top --
     not useful when you're trying to explore a *different* deck/meta. Pass ``exclude_mine=True``
-    to drop them from the ranking entirely (they're untouched in the database either way)."""
+    to drop them from the ranking entirely (they're untouched in the database either way).
+
+    ``contains`` restricts results to decks that include *every* listed card name (exact,
+    case-insensitive, any board) -- "build around this card" or, with several names, a combo.
+    ``name_contains`` restricts to decks whose name contains that substring (case-insensitive)
+    -- "build around this archetype/meta", e.g. "mono red"."""
     owned_wc = _wildcards_owned(conn)
-    deck_rows = _decks(conn, best_of=best_of, fmt=fmt)
+    deck_rows = _decks(conn, best_of=best_of, fmt=fmt, name_contains=name_contains)
     if exclude_mine:
         deck_rows = [d for d in deck_rows if d["source"] != "player_log"]
+    required = {c.strip().lower() for c in (contains or []) if c.strip()}
     max_meta_share = max(
         (d["meta_share"] for d in deck_rows if d["meta_share"] is not None), default=None
     )
@@ -307,6 +324,8 @@ def best_buildable_deck(
         if illegal and not include_illegal:
             continue
         gap = deck_gap(conn, d["id"])
+        if required and not required <= {c["name"].lower() for c in gap["all_cards"]}:
+            continue
         total_wc = sum(gap["wildcards_needed"].values())
         if max_wildcards is not None and total_wc > max_wildcards:
             continue
