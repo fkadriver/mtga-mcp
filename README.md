@@ -142,6 +142,24 @@ Then ask things like:
 - "Which rares am I missing from FDN?"
 - "List blue instants I own that are Standard-legal."
 
+### Optional companion: Bo1 replay coaching
+
+A separate private repo, [`mtga-replay-coach`](https://github.com/fkadriver/mtga-replay-coach)
+(not public — see its `NOTICE.md`), wraps this project's server with ranked Bo1 Standard
+replay-coaching tools (pivotal moments, loss causes, opponent cards seen, saved coach
+analyses). It depends on `mtga-mcp` as an editable path dependency and re-exposes every tool
+in this README alongside its own, so one MCP server (`mtga-coach`) covers both collection
+queries and game coaching:
+
+```bash
+cd ~/git/mtga-replay-coach && uv sync
+claude mcp add mtga-coach -- uv --directory ~/git/mtga-replay-coach run mtga-coach
+```
+
+This is a process-boundary integration only — the coaching code is third-party with unclear
+licensing and is never vendored into this repo. See `docs/latitude-setup.md` here for a full
+worked example (env vars, scheduled capture, Syncthing) of running both together.
+
 ## Tools exposed
 
 | Tool | Purpose |

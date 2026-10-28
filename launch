@@ -60,6 +60,7 @@ _menu() {
     echo "  [c] Capture inventory snapshot"
     echo "  [n] Current wildcards/currency (just now, no history)"
     echo "  [h] Wildcard/currency history"
+    echo "  [r] Bo1 replay coaching (companion repo setup info)"
     echo "  [s] Shell  (venv + bo/bo1/bo3 active)"
     echo "  [q] Quit"
     echo "=========================================="
@@ -105,6 +106,16 @@ _menu() {
         c|C) mtga-mcp capture; _menu ;;
         n|N) mtga-mcp history --limit 1; _menu ;;
         h|H) mtga-mcp history; _menu ;;
+        r|R)
+            echo "  Bo1 replay coaching lives in the separate ~/git/mtga-replay-coach repo"
+            echo "  (private; wraps this server, so it's not run from here). Setup:"
+            echo ""
+            echo "    cd ~/git/mtga-replay-coach && uv sync"
+            echo "    claude mcp add mtga-coach -- uv --directory ~/git/mtga-replay-coach run mtga-coach"
+            echo ""
+            echo "  See README.md's \"Optional companion\" section and docs/latitude-setup.md."
+            _menu
+            ;;
         s|S) _drop_to_shell; _menu ;;
         q|Q) echo "  Bye."; exit 0 ;;
         *) echo "  Unknown choice '${choice}'. Try again."; _menu ;;
