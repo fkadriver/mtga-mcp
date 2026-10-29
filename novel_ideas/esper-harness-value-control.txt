@@ -9,12 +9,11 @@ Deck
 1 Nullpriest of Oblivion
 4 Phantom Interference
 3 Requiting Hex
-2 Locust Spray
-4 Opt
-2 Callous Inspector
-2 Market Gnome
 2 Deadly Precision
-2 Flitterwing Nuisance
+4 Wreckage Wickerfolk
+4 Snarling Gorehound
+2 Deathcap Marionette
+2 Quag Feast
 4 Bleachbone Verge
 3 Gloomlake Verge
 1 Floodfarm Verge
